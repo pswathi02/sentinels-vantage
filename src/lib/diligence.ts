@@ -113,6 +113,7 @@ export function computeDelta(dossier: Dossier, fromMs: number, toMs: number): De
 
   const rows: DeltaRow[] = [];
   for (const [category, rels] of byCat) {
+    const seenText = new Set<string>();
     const items: DeltaItem[] = rels
       .sort((a, b) => Date.parse(b.validFrom) - Date.parse(a.validFrom))
       .map((r) => {
@@ -129,6 +130,14 @@ export function computeDelta(dossier: Dossier, fromMs: number, toMs: number): De
           url: s?.url,
           host: s ? host(s.url) : undefined,
         };
+      })
+      // Collapse identical evidence lines (the model often emits the same quote
+      // for several relations drawn from one sentence).
+      .filter((it) => {
+        const key = it.text.trim().toLowerCase();
+        if (seenText.has(key)) return false;
+        seenText.add(key);
+        return true;
       });
 
     rows.push({
@@ -148,19 +157,45 @@ function deltaText(category: RiskCategory, rels: TemporalRelation[]): string {
     case 'mgmt': {
       const dep = rels.filter((r) => r.kind === 'departed').length;
       const lay = rels.filter((r) => r.kind === 'laid_off').length;
+      const joined = rels.filter((r) => r.kind === 'joined').length;
+      const promoted = rels.filter((r) => r.kind === 'promoted_to').length;
       const parts: string[] = [];
       if (dep) parts.push(`-${dep} exec${dep > 1 ? 's' : ''}`);
       if (lay) parts.push(`${lay} layoff${lay > 1 ? 's' : ''}`);
+      if (joined) parts.push(`+${joined} hire${joined > 1 ? 's' : ''}`);
+      if (promoted) parts.push(`${promoted} promotion${promoted > 1 ? 's' : ''}`);
       return parts.join(' · ') || `${rels.length} change${rels.length > 1 ? 's' : ''}`;
     }
     case 'culture': {
       const neg = rels.some((r) => r.kind === 'reviewed_negatively');
       return neg ? 'sentiment ↓' : 'sentiment ↑';
     }
-    case 'legal':
-      return `+${rels.length} case${rels.length > 1 ? 's' : ''}`;
+    case 'legal': {
+      // Litigation is the risk; SEC filings are routine disclosure — count them
+      // separately so a 10-K doesn't read like a lawsuit.
+      const cases = rels.filter((r) => r.kind === 'litigated_with').length;
+      const filings = rels.filter((r) => r.kind === 'filed_with_sec').length;
+      const parts: string[] = [];
+      if (cases) parts.push(`+${cases} case${cases > 1 ? 's' : ''}`);
+      if (filings) parts.push(`${filings} SEC filing${filings > 1 ? 's' : ''}`);
+      return parts.join(' · ') || `${rels.length} update${rels.length > 1 ? 's' : ''}`;
+    }
     case 'financial':
       return 'pricing change';
+    case 'market': {
+      const count = (kind: RelationKind, sing: string, plur: string): string | null => {
+        const n = rels.filter((r) => r.kind === kind).length;
+        return n ? `${n} ${n > 1 ? plur : sing}` : null;
+      };
+      const parts = [
+        count('acquired', 'acquisition', 'acquisitions'),
+        count('partnered_with', 'partnership', 'partnerships'),
+        count('invested_in', 'investment', 'investments'),
+        count('launched', 'launch', 'launches'),
+        count('expanded_to', 'expansion', 'expansions'),
+      ].filter((p): p is string => p !== null);
+      return parts.join(' · ') || `${rels.length} update${rels.length > 1 ? 's' : ''}`;
+    }
     default:
       return `${rels.length} change${rels.length > 1 ? 's' : ''}`;
   }
@@ -169,15 +204,21 @@ function deltaText(category: RiskCategory, rels: TemporalRelation[]): string {
 function severityFor(category: RiskCategory, rels: TemporalRelation[]): RiskSeverity {
   switch (category) {
     case 'mgmt': {
+      // Only exits drive risk severity. Hires/promotions alone are not a red flag.
       const dep = rels.filter((r) => r.kind === 'departed').length;
       if (dep >= 2) return 'critical';
       if (dep === 1 || rels.some((r) => r.kind === 'laid_off')) return 'high';
-      return 'medium';
+      return 'low';
     }
     case 'culture':
       return rels.some((r) => r.kind === 'reviewed_negatively') ? 'high' : 'low';
-    case 'legal':
-      return rels.length >= 2 ? 'high' : 'medium';
+    case 'legal': {
+      // Only active litigation drives legal risk; SEC filings are routine.
+      const cases = rels.filter((r) => r.kind === 'litigated_with').length;
+      if (cases >= 2) return 'high';
+      if (cases === 1) return 'medium';
+      return 'low';
+    }
     case 'financial':
       return 'low';
     default:

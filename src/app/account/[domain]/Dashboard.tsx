@@ -674,7 +674,7 @@ export function Dashboard({ dossier, demoMode }: { dossier: Dossier; demoMode?: 
         </button>
         <button className="stat" onClick={() => jumpTo('sec-signals')}>
           <div className="num">{active.length}</div>
-          <div className="lbl">Signals active @ cursor</div>
+          <div className="lbl">Active signals · on selected date</div>
           <div className="stat-go">View signals →</div>
         </button>
         <button

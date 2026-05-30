@@ -152,7 +152,11 @@ Rules:
    - 0.5  = inferred from context
    - <0.5 = don't emit
 5. Use canonical names (e.g. "Peloton Interactive" not "Peloton", "Barry McCarthy" not "Mr. McCarthy").
-6. For exec departures: emit \`departed\` with validTo on the company, validFrom on date of leaving.
+6. Leadership changes — pick the kind by the DIRECTION of the move, not just the topic:
+   - Someone LEAVING the company (resigns, steps down, departs, retires, is ousted/fired, or dies/passes away) → \`departed\` (validTo on the company, validFrom = date of leaving). A death or passing is a departure, never a join.
+   - Someone JOINING / being HIRED / APPOINTED / NAMED to a role → \`joined\` (validFrom = start or announcement date). Phrases like "will join", "to join", "named as", "appointed", "hired as", "to lead", "becomes the new CEO/CFO" are ARRIVALS — emit \`joined\`, never \`departed\`.
+   - An existing insider moving up → \`promoted_to\`.
+   A new hire or appointment is a positive/neutral signal — do NOT label it as a departure.
 7. For events (conferences, product launches, announcements): use the specific event date, not the post date.
 `;
 
@@ -250,7 +254,7 @@ export async function extract(
       id: `rel-${doc.id}-${i}`,
       fromEntityId: slugifyName(r.fromName),
       toEntityId: slugifyName(r.toName),
-      kind: r.kind,
+      kind: correctMgmtKind(r.kind, r.evidence),
       observedAt,
       validFrom: coerceIso(r.validFrom, observedAt),
       validTo: r.validTo ? coerceIso(r.validTo, null) : null,
@@ -270,6 +274,27 @@ export async function extract(
     })),
     summary: raw.summary,
   });
+}
+
+// Arrival vs. departure language. Used to repair leadership-relation kinds when
+// the model mislabels them (e.g. tags an exec *joining* a company as `departed`).
+const ARRIVAL_RE =
+  /\b(join(s|ed|ing)?|to join|will join|named(\s+as)?|appoint(s|ed|ment|ing)?|hir(e|es|ed|ing)|to lead|takes?\s+over|becomes?\s+(the\s+)?(new\s+)?(chief|ceo|cfo|cmo|coo|cto|president|chair|head)|incoming|onboard)/i;
+const DEPARTURE_RE =
+  /\b(depart(s|ed|ure|ing)?|resign(s|ed|ation|ing)?|steps?\s+down|stepping\s+down|leav(e|es|ing)|\bleft\b|exit(s|ed|ing)?|oust(s|ed|er)?|fired|terminat(e|ed|ion)|retir(e|es|ed|ing|ement)|to leave|is leaving|out\s+as|removed|died|dies|death|passed\s+away|passing|deceased)/i;
+
+/**
+ * Repair obvious arrival/departure mislabels on management relations from the
+ * evidence text. Only flips when the language clearly points one way and
+ * contradicts the model's kind — otherwise the model's choice is kept.
+ */
+function correctMgmtKind(kind: string, evidence: string): string {
+  const text = evidence ?? '';
+  const arrival = ARRIVAL_RE.test(text);
+  const departure = DEPARTURE_RE.test(text);
+  if (kind === 'departed' && arrival && !departure) return 'joined';
+  if ((kind === 'joined' || kind === 'promoted_to') && departure && !arrival) return 'departed';
+  return kind;
 }
 
 /** Coerce a Claude-returned date string ("2022-02", "Feb 2022", etc.) to a full ISO 8601 timestamp. */
