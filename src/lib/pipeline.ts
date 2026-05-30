@@ -131,12 +131,25 @@ export async function buildDossier(
   const relations: TemporalRelation[] = [];
   graph.forEachEdge((_edge, attrs) => relations.push(attrs.relation));
 
-  const dossier: Dossier = {
-    target,
-    companyId: pickCompanyId(target, entities, relations),
-    window: { from: daysAgoIso(lookbackDays), to: nowIso() },
+  const companyId = pickCompanyId(target, entities, relations);
+
+  // Drop "orphan" entities that have no cited relation — extraction sometimes
+  // reifies a headline, news publisher, jurisdiction, stock-ticker page, or an
+  // incidental person (e.g. a presiding judge) into an entity. Those have no
+  // source to link to, which breaks the "every claim is cited" guarantee and
+  // clutters the graph. The company hub is always kept.
+  const { entities: citedEntities, relations: citedRelations } = keepCited(
     entities,
     relations,
+    companyId,
+  );
+
+  const dossier: Dossier = {
+    target,
+    companyId,
+    window: { from: daysAgoIso(lookbackDays), to: nowIso() },
+    entities: citedEntities,
+    relations: citedRelations,
     events: dedupeEvents(events),
   };
 
@@ -165,6 +178,31 @@ function pickCompanyId(
     .filter((e) => e.type === 'company')
     .sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0));
   return companies[0]?.id ?? slugify(deriveCompanyName(target));
+}
+
+/**
+ * Keep only entities that participate in at least one *cited* relation (plus the
+ * company hub). A relation counts as cited if it carries a source. Relations
+ * whose endpoints are dropped are removed too, so the graph never references a
+ * node that isn't rendered.
+ */
+function keepCited(
+  entities: Entity[],
+  relations: TemporalRelation[],
+  companyId: string,
+): { entities: Entity[]; relations: TemporalRelation[] } {
+  const cited = new Set<string>([companyId]);
+  for (const r of relations) {
+    if (r.sources && r.sources.length > 0) {
+      cited.add(r.fromEntityId);
+      cited.add(r.toEntityId);
+    }
+  }
+  const keptEntities = entities.filter((e) => cited.has(e.id));
+  const keptRelations = relations.filter(
+    (r) => cited.has(r.fromEntityId) && cited.has(r.toEntityId),
+  );
+  return { entities: keptEntities, relations: keptRelations };
 }
 
 function deriveCompanyName(target: string): string {
