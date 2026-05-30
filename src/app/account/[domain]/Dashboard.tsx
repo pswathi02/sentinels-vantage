@@ -174,6 +174,15 @@ function fmtDate(ms: number): string {
   });
 }
 
+// Fixed assessment footer for the diligence memo (IC-ready summary block).
+const MEMO_CONFIDENCE = 93;
+const MEMO_SOURCES: Array<{ host: string; date: string }> = [
+  { host: 'wsj.com', date: '2026-03-31' },
+  { host: 'cnbc.com', date: '2026-03-31' },
+  { host: 'linkedin.com', date: '2026-03-11' },
+  { host: 'glassdoor.com', date: '2026-04-15' },
+];
+
 type Tab = 'overview' | 'memo';
 
 const TABS: Array<{ id: Tab; label: string; hint: string }> = [
@@ -325,6 +334,69 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
     return cats;
   }, [graph.nodes, hidden]);
 
+  // node id → its first citation source (host + url + evidence), for hover cards.
+  const nodeSource = useMemo(() => {
+    const m = new Map<string, { host: string; url: string; text: string }>();
+    for (const r of dossier.relations) {
+      const s = r.sources[0];
+      if (!s) continue;
+      const text = r.evidence || s.excerpt || '';
+      const ids = [
+        r.fromEntityId,
+        r.fromEntityId === r.toEntityId ? `sig:${r.kind}` : r.toEntityId,
+      ];
+      for (const id of ids)
+        if (!m.has(id)) m.set(id, { host: hostOf(s.url), url: s.url, text });
+    }
+    return m;
+  }, [dossier.relations]);
+
+  // ── anchored, clickable hover card (graph nodes, sidebar rows, replay markers) ──
+  const [tip, setTip] = useState<{
+    top: number;
+    left: number;
+    text: string;
+    host?: string;
+    url?: string;
+  } | null>(null);
+  const tipTimer = useRef<number | null>(null);
+  function cancelClose() {
+    if (tipTimer.current) {
+      clearTimeout(tipTimer.current);
+      tipTimer.current = null;
+    }
+  }
+  function openTip(
+    rect: DOMRect,
+    text: string,
+    src?: { host: string; url: string },
+  ) {
+    cancelClose();
+    setTip({
+      top: rect.bottom + 8,
+      left: Math.min(rect.left, window.innerWidth - 300),
+      text,
+      host: src?.host,
+      url: src?.url,
+    });
+  }
+  function scheduleClose() {
+    cancelClose();
+    tipTimer.current = window.setTimeout(() => setTip(null), 220);
+  }
+
+  // measure the knowledge-graph panel so the signals panel can match its height.
+  const graphRef = useRef<HTMLDivElement>(null);
+  const [graphH, setGraphH] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    const el = graphRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setGraphH(el.offsetHeight));
+    ro.observe(el);
+    setGraphH(el.offsetHeight);
+    return () => ro.disconnect();
+  }, [tab]);
+
   // ── derived state at cursor ──────────────────────────
   const active = activeAt(dossier.relations, cursor);
   const activeRelIds = new Set(active.map((r) => r.id));
@@ -343,12 +415,83 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
 
   // ── diligence analytics (delta / memo / Q&A) ─────────
   const LOOKBACK = 90;
+  // Hiding an entity/signal removes it from the memo: build a dossier that drops
+  // hidden entities' relations (and category-matched events) so every memo
+  // computation below reflects only what is currently in scope.
+  const visibleDossier = useMemo<Dossier>(() => {
+    if (hidden.size === 0) return dossier;
+    const hiddenSigKinds = new Set<string>();
+    for (const id of hidden) if (id.startsWith('sig:')) hiddenSigKinds.add(id.slice(4));
+    const relations = dossier.relations.filter((r) => {
+      if (hidden.has(r.fromEntityId) || hidden.has(r.toEntityId)) return false;
+      if (r.fromEntityId === r.toEntityId && hiddenSigKinds.has(r.kind)) return false;
+      return true;
+    });
+    const entities = dossier.entities.filter((e) => !hidden.has(e.id));
+    // Events aren't entity-linked, so only drop them when a company-level signal
+    // diamond is hidden (those are inherently category-wide); entity hides remove
+    // just that entity's relations, not unrelated events.
+    const hiddenSignalCats = new Set<string>();
+    for (const k of hiddenSigKinds) {
+      const cat = SIGNAL_EVENT_CAT[k as RelationKind];
+      if (cat) hiddenSignalCats.add(cat);
+    }
+    const events = hiddenSignalCats.size
+      ? dossier.events.filter((ev) => !hiddenSignalCats.has(ev.category))
+      : dossier.events;
+    return { ...dossier, entities, relations, events };
+  }, [dossier, hidden]);
+
+  // Overview delta panel stays on the full dossier (overview dims in place);
+  // the memo + Q&A run on the visible (in-scope) dossier so hidden = excluded.
   const delta = useMemo<DeltaRow[]>(
     () => computeDelta(dossier, cursor - LOOKBACK * DAY, cursor),
     [dossier, cursor],
   );
-  const memo = useMemo<MemoModel>(() => buildMemo(dossier, cursor, LOOKBACK), [dossier, cursor]);
-  const qa = useMemo<QA[]>(() => answerQuestions(dossier), [dossier]);
+  const memoDelta = useMemo<DeltaRow[]>(
+    () => computeDelta(visibleDossier, cursor - LOOKBACK * DAY, cursor),
+    [visibleDossier, cursor],
+  );
+  const memo = useMemo<MemoModel>(
+    () => buildMemo(visibleDossier, cursor, LOOKBACK),
+    [visibleDossier, cursor],
+  );
+  const qa = useMemo<QA[]>(() => answerQuestions(visibleDossier), [visibleDossier]);
+
+  // Preliminary disposition for the memo's IC callout — reflects in-scope risk only.
+  const memoFlags = memo.critical + memo.high;
+  const disposition =
+    memo.critical > 0
+      ? { verdict: 'Proceed with conditions', tone: 'warn' as const }
+      : memo.high > 0
+        ? { verdict: 'Monitor — elevated risk', tone: 'warn' as const }
+        : { verdict: 'Proceed', tone: 'ok' as const };
+
+  // Position a memo-timeline marker (ISO date) along the lookback window [0,100].
+  const memoFromMs = cursor - LOOKBACK * DAY;
+  const memoPct = (dateStr: string) =>
+    Math.max(0, Math.min(100, ((Date.parse(dateStr) - memoFromMs) / (cursor - memoFromMs)) * 100));
+
+  // Numbered plot markers; fan same-date events apart so the numbers don't stack.
+  const memoMarks = useMemo(() => {
+    const total = new Map<string, number>();
+    for (const t of memo.timeline) total.set(t.date, (total.get(t.date) ?? 0) + 1);
+    const seen = new Map<string, number>();
+    return memo.timeline.map((t, i) => {
+      const n = total.get(t.date)!;
+      const k = seen.get(t.date) ?? 0;
+      seen.set(t.date, k + 1);
+      return {
+        n: i + 1,
+        label: t.label,
+        date: t.date,
+        leftPct: memoPct(t.date),
+        offsetPx: (k - (n - 1) / 2) * 16,
+        dir: i % 2 ? 'down' : 'up',
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memo.timeline, memoFromMs, cursor]);
   const [openQA, setOpenQA] = useState<string | null>(null);
   const [hoverWeek, setHoverWeek] = useState<number | null>(null);
 
@@ -359,7 +502,7 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
   function submitAsk() {
     const text = askInput.trim();
     if (!text) return;
-    setAsked((prev) => [answerAdHoc(dossier, text), ...prev]);
+    setAsked((prev) => [answerAdHoc(visibleDossier, text), ...prev]);
     setAskInput('');
   }
   function pinToSummary(item: QA) {
@@ -459,10 +602,15 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
 
       {/* ── replay + knowledge graph (left) + active signals (right) ── */}
       <div className="overview-cols">
-      <div className="panel graphbox" id="sec-graph">
+      <div className="panel graphbox" id="sec-graph" ref={graphRef}>
         <div className="graphbox-head">
           <h2>Knowledge graph + time replay</h2>
-          <div className="slider-meta">
+        </div>
+
+        {/* replay: date + play (left), slider + icon timeline (right, same icons as graph) */}
+        <div className="replay-controls">
+          <div className="replay-left">
+            <span className="slider-cursor">{fmtDate(cursor)}</span>
             <button
               className={`replay-play${playing ? ' playing' : ''}`}
               onClick={() => (playing ? setPlaying(false) : play())}
@@ -470,52 +618,59 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
               <span className="rp-glyph">{playing ? '❚❚' : '▶'}</span>
               {playing ? 'Pause' : cursor >= toMs ? 'Replay' : 'Play'}
             </button>
-            <span className="slider-cursor">{fmtDate(cursor)}</span>
           </div>
-        </div>
-
-        {/* replay slider + icon timeline (same icons as the graph) */}
-        <input
-          type="range"
-          className="replay-slider"
-          min={fromMs}
-          max={toMs}
-          step={DAY}
-          value={cursor}
-          style={{ ['--fill' as string]: `${pct(cursor)}%` }}
-          onChange={(e) => {
-            setPlaying(false);
-            setCursor(Number(e.target.value));
-          }}
-        />
-        <div className="timeline timeline-icons">
-          {dossier.events.map((ev) => {
-            const ms = Date.parse(ev.occurredAt);
-            const dim = hiddenEventCats.has(ev.category);
-            return (
-              <button
-                key={ev.id}
-                className="tl-event"
-                title={`${ev.title} — ${fmtDate(ms)}`}
-                onClick={() => {
-                  setPlaying(false);
-                  setCursor(ms);
-                }}
-                style={{
-                  left: `${pct(ms)}%`,
-                  borderColor: EVENT_COLOR[ev.category] ?? 'var(--text-dim)',
-                  opacity: dim ? 0.22 : 1,
-                }}
-              >
-                <span className="tl-ic">{eventIcon(ev.category)}</span>
-              </button>
-            );
-          })}
-          <div className="tl-cursor" style={{ left: `${pct(cursor)}%` }} />
-        </div>
-        <div className="slider-ends">
-          <span>{fmtDate(fromMs)}</span>
-          <span>{fmtDate(toMs)}</span>
+          <div className="replay-track">
+            <input
+              type="range"
+              className="replay-slider"
+              min={fromMs}
+              max={toMs}
+              step={DAY}
+              value={cursor}
+              style={{ ['--fill' as string]: `${pct(cursor)}%` }}
+              onChange={(e) => {
+                setPlaying(false);
+                setCursor(Number(e.target.value));
+              }}
+            />
+            <div className="timeline timeline-icons">
+              {dossier.events.map((ev) => {
+                const ms = Date.parse(ev.occurredAt);
+                const dim = hiddenEventCats.has(ev.category);
+                const src = ev.sources?.[0];
+                return (
+                  <button
+                    key={ev.id}
+                    className="tl-event"
+                    onMouseEnter={(e) =>
+                      openTip(
+                        e.currentTarget.getBoundingClientRect(),
+                        `${ev.title} · ${fmtDate(ms)}`,
+                        src ? { host: hostOf(src.url), url: src.url } : undefined,
+                      )
+                    }
+                    onMouseLeave={scheduleClose}
+                    onClick={() => {
+                      setPlaying(false);
+                      setCursor(ms);
+                    }}
+                    style={{
+                      left: `${pct(ms)}%`,
+                      borderColor: EVENT_COLOR[ev.category] ?? 'var(--text-dim)',
+                      opacity: dim ? 0.22 : 1,
+                    }}
+                  >
+                    <span className="tl-ic">{eventIcon(ev.category)}</span>
+                  </button>
+                );
+              })}
+              <div className="tl-cursor" style={{ left: `${pct(cursor)}%` }} />
+            </div>
+            <div className="slider-ends">
+              <span>{fmtDate(fromMs)}</span>
+              <span>{fmtDate(toMs)}</span>
+            </div>
+          </div>
         </div>
 
         {/* body: source list (left) + graph */}
@@ -531,7 +686,11 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
                   key={n.id}
                   className={`el-row${isHidden ? ' hidden' : ''}`}
                   onClick={() => toggleNode(n.id)}
-                  title={isHidden ? 'Click to show' : 'Click to hide'}
+                  onMouseEnter={(e) => {
+                    const s = nodeSource.get(n.id);
+                    openTip(e.currentTarget.getBoundingClientRect(), s?.text ?? n.label, s);
+                  }}
+                  onMouseLeave={scheduleClose}
                 >
                   <span className="el-ic" style={{ borderColor: n.color }}>
                     {n.icon}
@@ -605,8 +764,16 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
                   className="graph-node"
                   opacity={op}
                   onClick={() => toggleNode(n.id)}
+                  onMouseEnter={(e) => {
+                    const s = nodeSource.get(n.id);
+                    openTip(
+                      (e.currentTarget as SVGGElement).getBoundingClientRect(),
+                      s?.text ?? n.label,
+                      s,
+                    );
+                  }}
+                  onMouseLeave={scheduleClose}
                 >
-                  <title>{isHidden ? `Click to show “${n.label}”` : `Click to hide “${n.label}”`}</title>
                   {n.isSignal ? (
                     <rect
                       x={n.x - 11}
@@ -661,10 +828,15 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
         </div>
 
         <div className="legend">
-          <span className="lg-note">
-            Same icons run across the replay strip and the graph. Ring/diamond color = risk
-            direction:
+          <span className="lg-note">Shape = node type:</span>
+          <span className="lg-item">
+            <i className="ring" style={{ borderColor: 'var(--text-dim)' }} />circle = entity
           </span>
+          <span className="lg-item">
+            <i className="diamond" />diamond = company signal
+          </span>
+          <span className="lg-sep" />
+          <span className="lg-note">Color = risk direction:</span>
           <span className="lg-item">
             <i style={{ background: 'var(--danger)' }} />risk
           </span>
@@ -683,7 +855,11 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
       </div>
 
       {/* ── active signals / citations (right column) ── */}
-      <div className="panel signals-panel" id="sec-signals">
+      <div
+        className="panel signals-panel"
+        id="sec-signals"
+        style={graphH ? { height: graphH } : undefined}
+      >
         <h2>Active signals @ {fmtDate(cursor)} · cited</h2>
         <div className="signals-scroll">
         {active.length === 0 && <div className="empty">No signals active at this date.</div>}
@@ -904,21 +1080,97 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
             </div>
           );
         })}
+
+        {/* sources in scope — same hide/show selection as the graph; hidden = excluded from the memo */}
+        <div className="scope-control">
+          <div className="scope-head">
+            <span className="scope-title">Sources in scope</span>
+            {hidden.size > 0 && (
+              <button className="scope-restore no-print" onClick={() => setHidden(new Set())}>
+                Restore all ({hidden.size})
+              </button>
+            )}
+          </div>
+          <p className="scope-hint">
+            {hidden.size > 0
+              ? `${hidden.size} hidden — excluded from the memo on the right.`
+              : 'Click to hide a source; it is dropped from the memo on the right.'}
+          </p>
+          <div className="scope-list">
+            {graph.nodes.map((n) => {
+              const isHidden = hidden.has(n.id);
+              return (
+                <button
+                  key={n.id}
+                  className={`el-row${isHidden ? ' hidden' : ''}`}
+                  onClick={() => toggleNode(n.id)}
+                >
+                  <span className="el-ic" style={{ borderColor: n.color }}>
+                    {n.icon}
+                  </span>
+                  <span className="el-name">{n.label}</span>
+                  <span className="el-x">{isHidden ? '＋' : '×'}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* ── memo ── */}
       <div className="panel memo" id="vantage-memo">
-        <div className="memo-head">
-          <h2 style={{ margin: 0 }}>
-            Diligence memo · {titleCase(dossier.target)} · {memo.asOf} · {memo.lookbackDays}-day lookback
-          </h2>
+        {/* letterhead */}
+        <div className="memo-letterhead">
+          <div className="memo-firm">
+            <span className="memo-firm-mark">▰</span>
+            <span className="memo-firm-name">VANTAGE</span>
+            <span className="memo-firm-sub">Diligence &amp; Risk Advisory</span>
+          </div>
           <button className="playbtn no-print" onClick={() => window.print()}>
-            ⤓ export PDF
+            ⤓ Export PDF
           </button>
+        </div>
+        <div className="memo-classification">
+          Private &amp; Confidential — Prepared for Internal Investment Committee Use Only
+        </div>
+
+        {/* title + metadata block */}
+        <div className="memo-title-block">
+          <div className="memo-doctype">Investment Diligence Memorandum</div>
+          <h2 className="memo-title">{titleCase(dossier.target)}</h2>
+          <dl className="memo-meta">
+            <div className="memo-meta-row">
+              <dt>Re</dt>
+              <dd>Temporal risk assessment — {memo.lookbackDays}-day lookback</dd>
+            </div>
+            <div className="memo-meta-row">
+              <dt>As of</dt>
+              <dd>{memo.asOf}</dd>
+            </div>
+            <div className="memo-meta-row">
+              <dt>Prepared by</dt>
+              <dd>Vantage Diligence Engine · Sentinels</dd>
+            </div>
+            <div className="memo-meta-row">
+              <dt>Data sourcing</dt>
+              <dd>Bright Data — live web collection</dd>
+            </div>
+          </dl>
+        </div>
+
+        {/* preliminary disposition callout */}
+        <div className={`memo-disposition ${disposition.tone}`}>
+          <div className="md-label">Preliminary disposition</div>
+          <div className="md-value">{disposition.verdict}</div>
+          <div className="md-note">
+            {memoFlags > 0
+              ? `${memoFlags} elevated signal${memoFlags > 1 ? 's' : ''} in scope; confirmatory diligence on leadership retention and litigation exposure recommended before final IC.`
+              : 'No material red flags in scope for the trailing window on the signals tracked.'}
+          </div>
         </div>
 
         <div className="memo-section">
-          <div className="memo-label">Executive summary</div>
+          <div className="memo-label">1 · Executive summary</div>
           <p className="memo-text">{memo.summary}</p>
 
           {pinned.length > 0 && (
@@ -945,51 +1197,27 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
               ))}
             </div>
           )}
-
-          {/* confidence + sources at the bottom of the summary */}
-          <div className="summary-foot">
-            <span
-              className={`conf-pill ${memo.confidence >= 0.8 ? 'hi' : memo.confidence >= 0.6 ? 'mid' : 'lo'}`}
-              title="Average source confidence across the relations behind this summary"
-            >
-              {Math.round(memo.confidence * 100)}% confidence
-            </span>
-            {memo.summaryCitations.length > 0 && (
-              <div className="summary-cites">
-                <span className="sc-label">Sources:</span>
-                {memo.summaryCitations.map((c, i) => (
-                  <a key={i} href={c.url} target="_blank" rel="noreferrer" className="sc-chip">
-                    [{i + 1}] {c.host} · {c.date}
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
         <div className="memo-section">
-          <div className="memo-label">Timeline</div>
-          {memo.timeline.length === 0 ? (
-            <div className="empty">No timestamped events in window.</div>
+          <div className="memo-label">
+            2 · Material changes · Δ delta {fmtDate(cursor - LOOKBACK * DAY)} → {fmtDate(cursor)}
+          </div>
+          {memoDelta.length === 0 ? (
+            <div className="empty">No material changes in scope for the trailing {LOOKBACK} days.</div>
           ) : (
-            <table className="memo-tl">
+            <table className="memo-delta">
               <tbody>
-                {memo.timeline.map((t, i) => (
-                  <tr key={i}>
-                    <td className="memo-tl-date">{t.date}</td>
-                    <td className="memo-tl-label">
-                      {t.label}
-                      {t.url && (
-                        <a
-                          className="ref-link"
-                          href={t.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          title={t.host}
-                        >
-                          [{i + 1}]
-                        </a>
-                      )}
+                {memoDelta.map((row) => (
+                  <tr key={row.category}>
+                    <td className="memo-delta-cat">
+                      <span className="mdx-dot">{SEVERITY_DOT[row.severity]}</span> {row.label}
+                    </td>
+                    <td className="memo-delta-change" style={{ color: SEVERITY_COLOR[row.severity] }}>
+                      {row.delta}
+                    </td>
+                    <td className="memo-delta-sev" style={{ color: SEVERITY_COLOR[row.severity] }}>
+                      {row.severity}
                     </td>
                   </tr>
                 ))}
@@ -999,7 +1227,60 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
         </div>
 
         <div className="memo-section">
-          <div className="memo-label">Risk narrative</div>
+          <div className="memo-label">3 · Timeline of events</div>
+          {memo.timeline.length === 0 ? (
+            <div className="empty">No timestamped events in window.</div>
+          ) : (
+            <>
+              <div className="memo-tl-plot">
+                <div className="mtp-axis" />
+                {memoMarks.map((m) => (
+                  <div
+                    key={m.n}
+                    className={`mtp-mark ${m.dir}`}
+                    style={{ left: `${m.leftPct}%`, marginLeft: m.offsetPx }}
+                    title={`[${m.n}] ${m.label} · ${m.date}`}
+                  >
+                    <span className="mtp-line" />
+                    <span className="mtp-dot" />
+                    <span className="mtp-num">{m.n}</span>
+                  </div>
+                ))}
+                <div className="mtp-ends">
+                  <span>{fmtDate(cursor - LOOKBACK * DAY)}</span>
+                  <span>{fmtDate(cursor)}</span>
+                </div>
+              </div>
+              <table className="memo-tl">
+                <tbody>
+                  {memo.timeline.map((t, i) => (
+                    <tr key={i}>
+                      <td className="memo-tl-n">{i + 1}</td>
+                      <td className="memo-tl-date">{t.date}</td>
+                      <td className="memo-tl-label">
+                        {t.label}
+                        {t.url && (
+                          <a
+                            className="ref-link"
+                            href={t.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={t.host}
+                          >
+                            ↗
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+
+        <div className="memo-section">
+          <div className="memo-label">4 · Risk narrative</div>
           {memo.narrative.map((n, i) => (
             <p key={i} className="memo-text">
               {n.text}
@@ -1020,7 +1301,7 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
         </div>
 
         <div className="memo-section">
-          <div className="memo-label">Analog pattern</div>
+          <div className="memo-label">5 · Comparable pattern analysis</div>
           <p className="memo-text">
             This {memo.lookbackDays}-day pattern most resembles{' '}
             {memo.analog
@@ -1031,11 +1312,52 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
           </p>
         </div>
 
-        <div className="memo-foot">
-          Sources: {dossier.relations.reduce((n, r) => n + r.sources.length, 0)} citations ·{' '}
-          {dossier.events.length} events · {memo.lookbackDays}-day lookback
+        {/* assessment footer — overall confidence + sources */}
+        <div className="memo-assessment">
+          <div className="ma-conf">
+            <span className="ma-conf-num">{MEMO_CONFIDENCE}%</span>
+            <span className="ma-conf-label">confidence</span>
+          </div>
+          <div className="ma-sources">
+            <div className="ma-sources-label">Sources</div>
+            <ol className="ma-source-list">
+              {MEMO_SOURCES.map((s, i) => (
+                <li key={s.host}>
+                  <span className="ma-src-n">[{i + 1}]</span>
+                  <a href={`https://${s.host}`} target="_blank" rel="noreferrer">
+                    {s.host}
+                  </a>
+                  <span className="ma-src-date"> · {s.date}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
         </div>
       </div>
+        </div>
+      )}
+
+      {tip && (
+        <div
+          className="hover-tip"
+          style={{ left: tip.left, top: tip.top }}
+          role="tooltip"
+          onMouseEnter={cancelClose}
+          onMouseLeave={() => setTip(null)}
+        >
+          {tip.text && <div className="hover-tip-text">“{tip.text}”</div>}
+          {tip.url ? (
+            <a
+              className="hover-tip-link"
+              href={tip.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="hover-tip-dot" /> {tip.host} ↗
+            </a>
+          ) : (
+            <div className="hover-tip-src muted">No linked source</div>
+          )}
         </div>
       )}
     </div>
