@@ -26,3 +26,6 @@ next-env.d.ts
 # logs
 *.log
 npm-debug.log*
+
+# local dossier + usage cache
+.cache/

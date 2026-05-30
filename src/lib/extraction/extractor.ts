@@ -17,7 +17,7 @@ import {
   type RawDoc,
   nowIso,
 } from '@/lib/schema';
-import { isDemoMode, getDemoTarget } from '@/lib/fixtures';
+import { getDemoTarget } from '@/lib/fixtures';
 
 let _client: Anthropic | null = null;
 function client(): Anthropic {
@@ -151,13 +151,11 @@ export async function extract(
   doc: RawDoc,
   targetCompany: string,
 ): Promise<ExtractionResultT> {
-  // DEMO_MODE — return the pre-extracted facts for this fixture doc.
-  if (isDemoMode()) {
-    const demo = getDemoTarget(targetCompany);
-    const cached = demo?.extractions[doc.id];
-    if (cached) return ExtractionResult.parse(cached);
-    // demo mode but unknown doc — fall through to live extraction
-  }
+  // Registered demo targets: return the pre-extracted facts for this fixture
+  // doc, never calling the API. Unknown docs fall through to live extraction.
+  const demo = getDemoTarget(targetCompany);
+  const cached = demo?.extractions[doc.id];
+  if (cached) return ExtractionResult.parse(cached);
 
   const userMessage = buildUserMessage(doc, targetCompany);
 
@@ -182,6 +180,14 @@ export async function extract(
     }
   }
   if (!response) throw new Error('extraction failed after retries');
+
+  // Meter token consumption for the usage widget.
+  try {
+    const { recordAnthropic } = await import('@/lib/usage');
+    recordAnthropic(response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0);
+  } catch {
+    /* metering is best-effort */
+  }
 
   // Extract the tool_use block
   const toolUse = response.content.find(

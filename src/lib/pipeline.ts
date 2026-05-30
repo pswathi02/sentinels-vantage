@@ -18,6 +18,8 @@ import {
   nowIso,
   slugify,
 } from '@/lib/schema';
+import { isDemoTarget } from '@/lib/fixtures';
+import { cacheGet, cacheSet } from '@/lib/cache';
 
 export interface Dossier {
   target: string;
@@ -28,7 +30,10 @@ export interface Dossier {
   events: Event[];
 }
 
-const LOOKBACK_DAYS = 180;
+/** Default lookback window. Kept short so live runs pull less data + finish faster. */
+export const DEFAULT_LOOKBACK_DAYS = 30;
+/** How long a built dossier stays warm in the disk cache. */
+const DOSSIER_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 /** Build the in-memory graph for a target (used by CLI + tests). */
 const MAX_DOCS = 15;
@@ -57,8 +62,9 @@ async function runWithConcurrency<T>(
 
 export async function buildGraph(
   target: string,
+  lookbackDays: number = DEFAULT_LOOKBACK_DAYS,
 ): Promise<{ graph: VantageGraph; events: Event[]; errors: Array<{ source: string; error: string }> }> {
-  const { docs: allDocs, errors } = await ingestAll(target, { lookbackDays: LOOKBACK_DAYS });
+  const { docs: allDocs, errors } = await ingestAll(target, { lookbackDays });
 
   // Cap total docs — prioritise news and legal, trim SEC filings
   const docs = [...allDocs]
@@ -83,8 +89,23 @@ export async function buildGraph(
 }
 
 /** Build the serializable dossier a route/component consumes. */
-export async function buildDossier(target: string): Promise<Dossier> {
-  const { graph, events } = await buildGraph(target);
+export async function buildDossier(
+  target: string,
+  opts: { lookbackDays?: number } = {},
+): Promise<Dossier> {
+  const lookbackDays = opts.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
+
+  // Registered demo targets are already instant (served from fixtures), so we
+  // never disk-cache them. Typed-in URLs are fetched live and cached: a recently
+  // requested (target, window) pair is served from disk instead of re-scraping.
+  const cacheKey = `dossier:${target.toLowerCase()}:${lookbackDays}`;
+  const fetched = !isDemoTarget(target);
+  if (fetched) {
+    const hit = cacheGet<Dossier>(cacheKey);
+    if (hit) return hit.value;
+  }
+
+  const { graph, events } = await buildGraph(target, lookbackDays);
 
   const entities: Entity[] = [];
   graph.forEachNode((_id, attrs) => entities.push(attrs.entity));
@@ -92,14 +113,19 @@ export async function buildDossier(target: string): Promise<Dossier> {
   const relations: TemporalRelation[] = [];
   graph.forEachEdge((_edge, attrs) => relations.push(attrs.relation));
 
-  return {
+  const dossier: Dossier = {
     target,
     companyId: pickCompanyId(target, entities, relations),
-    window: { from: daysAgoIso(LOOKBACK_DAYS), to: nowIso() },
+    window: { from: daysAgoIso(lookbackDays), to: nowIso() },
     entities,
     relations,
     events: dedupeEvents(events),
   };
+
+  // Only cache successful fetches — never cache an empty/failed run, so a retry
+  // can still succeed.
+  if (fetched && dossier.entities.length > 0) cacheSet(cacheKey, dossier, DOSSIER_TTL_MS);
+  return dossier;
 }
 
 /**

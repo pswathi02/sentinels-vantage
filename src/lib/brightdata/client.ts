@@ -7,14 +7,59 @@
  * Tools available: search_engine, scrape_as_markdown, search_engine_batch, scrape_batch
  *
  * Required env:
- *   BRIGHTDATA_MCP_URL   (includes token as query param)
+ *   BRIGHTDATA_MCP_URL     SSE endpoint, e.g. https://mcp.brightdata.com/sse?token=...
+ *   BRIGHTDATA_API_TOKEN   used to fill the token if the URL omits it (or uses the
+ *                          YOUR_BRIGHTDATA_API_TOKEN placeholder)
+ *
+ * The .env.local you drop in can be the full form:
+ *   BRIGHTDATA_MCP_URL=https://mcp.brightdata.com/sse?token=YOUR_BRIGHTDATA_API_TOKEN
+ * resolveMcpUrl() normalizes it: ensures the /sse path, and substitutes the real
+ * token from BRIGHTDATA_API_TOKEN when the placeholder is present or token missing.
  */
 
-const MCP_URL = process.env.BRIGHTDATA_MCP_URL ?? 'https://mcp.brightdata.com/sse';
-const MCP_BASE = 'https://mcp.brightdata.com';
+const TOKEN_PLACEHOLDER = 'YOUR_BRIGHTDATA_API_TOKEN';
 
-if (!process.env.BRIGHTDATA_MCP_URL && process.env.NODE_ENV !== 'test') {
-  console.warn('[brightdata] BRIGHTDATA_MCP_URL not set — calls will fail');
+/**
+ * Build the effective MCP SSE URL from env. Tolerant of:
+ *   - base only:            https://mcp.brightdata.com          → adds /sse + token
+ *   - missing /sse path:    https://mcp.brightdata.com?token=x  → adds /sse
+ *   - placeholder token:    ...?token=YOUR_BRIGHTDATA_API_TOKEN → swaps in real token
+ *   - missing token:        https://mcp.brightdata.com/sse      → adds token from env
+ *   - fully-formed url:     used as-is
+ */
+export function resolveMcpUrl(): string {
+  const raw = process.env.BRIGHTDATA_MCP_URL?.trim() || 'https://mcp.brightdata.com/sse';
+  const token = process.env.BRIGHTDATA_API_TOKEN?.trim();
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return raw; // malformed — hand back untouched so the failure is visible
+  }
+
+  // Ensure the SSE path.
+  if (url.pathname === '/' || url.pathname === '') url.pathname = '/sse';
+
+  // Fill / fix the token query param.
+  const current = url.searchParams.get('token');
+  if ((!current || current === TOKEN_PLACEHOLDER) && token) {
+    url.searchParams.set('token', token);
+  }
+
+  return url.toString();
+}
+
+const MCP_URL = resolveMcpUrl();
+const MCP_BASE = new URL(MCP_URL).origin;
+
+if (process.env.NODE_ENV !== 'test') {
+  const hasToken = new URL(MCP_URL).searchParams.get('token');
+  if (!hasToken || hasToken === TOKEN_PLACEHOLDER) {
+    console.warn(
+      '[brightdata] no token resolved for MCP — set BRIGHTDATA_API_TOKEN or include ?token= in BRIGHTDATA_MCP_URL; live calls will fail',
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -26,6 +71,9 @@ async function callMcpTool(
   args: Record<string, unknown>,
   timeoutMs = 30_000,
 ): Promise<unknown> {
+  // Meter Bright Data consumption for the usage widget (best-effort, non-blocking).
+  import('@/lib/usage').then((m) => m.recordBrightData(1)).catch(() => {});
+
   return new Promise((resolve, reject) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => {

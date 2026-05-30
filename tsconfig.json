@@ -8,7 +8,7 @@
       "DOM",
       "DOM.Iterable"
     ],
-    "jsx": "react-jsx",
+    "jsx": "preserve",
     "allowJs": true,
     "incremental": true,
     "strict": true,

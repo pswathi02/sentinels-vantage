@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { UsageWidget } from '@/components/UsageWidget';
 
 export const metadata: Metadata = {
   title: 'Vantage — time-travel for the open web',
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           )}
         </div>
         {children}
+        <UsageWidget />
       </body>
     </html>
   );

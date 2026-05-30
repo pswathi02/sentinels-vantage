@@ -2,14 +2,14 @@
  * Demo fixture registry.
  *
  * Keyed by bare domain. When DEMO_MODE is on, the pipeline serves these
- * instead of calling Bright Data / Claude. Add wework.com and klaviyo.com
- * here using the same shape as peloton.ts.
+ * instead of calling Bright Data / Claude. Add new targets here using the
+ * same shape as peloton.ts / spirit.ts.
  */
 
 import type { RawDoc, ExtractionResult } from '@/lib/schema';
-import { PELOTON_DOCS, PELOTON_EXTRACTIONS } from './peloton';
-import { WEWORK_DOCS, WEWORK_EXTRACTIONS } from './wework';
-import { KLAVIYO_DOCS, KLAVIYO_EXTRACTIONS } from './klaviyo';
+import { SPIRIT_DOCS, SPIRIT_EXTRACTIONS } from './spirit';
+import { WIZ_DOCS, WIZ_EXTRACTIONS } from './wiz';
+import { EVERLANE_DOCS, EVERLANE_EXTRACTIONS } from './everlane';
 
 export interface DemoTarget {
   docs: RawDoc[];
@@ -17,9 +17,9 @@ export interface DemoTarget {
 }
 
 const REGISTRY: Record<string, DemoTarget> = {
-  'peloton.com': { docs: PELOTON_DOCS, extractions: PELOTON_EXTRACTIONS },
-  'wework.com': { docs: WEWORK_DOCS, extractions: WEWORK_EXTRACTIONS },
-  'klaviyo.com': { docs: KLAVIYO_DOCS, extractions: KLAVIYO_EXTRACTIONS },
+  'spirit.com': { docs: SPIRIT_DOCS, extractions: SPIRIT_EXTRACTIONS },
+  'wiz.io': { docs: WIZ_DOCS, extractions: WIZ_EXTRACTIONS },
+  'everlane.com': { docs: EVERLANE_DOCS, extractions: EVERLANE_EXTRACTIONS },
 };
 
 function normalizeDomain(target: string): string {
@@ -38,6 +38,15 @@ export function isDemoMode(): boolean {
 
 export function getDemoTarget(target: string): DemoTarget | null {
   return REGISTRY[normalizeDomain(target)] ?? null;
+}
+
+/**
+ * True when this target has hand-curated pre-cached data. These are ALWAYS
+ * served from fixtures — never fetched — independent of DEMO_MODE. Anything
+ * else is treated as a typed-in URL and fetched live (cache-first).
+ */
+export function isDemoTarget(target: string): boolean {
+  return getDemoTarget(target) != null;
 }
 
 export function listDemoTargets(): string[] {
