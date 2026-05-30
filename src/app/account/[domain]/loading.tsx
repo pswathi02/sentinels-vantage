@@ -21,15 +21,55 @@ const STAGES = [
   { pct: 95, label: 'Synthesizing the diligence memo…' },
 ];
 
+/**
+ * Rotating "did you know" lines so the wait isn't a blank progress bar. They
+ * teach how to read the dashboard and surface the diligence patterns the tool
+ * looks for. `{co}` is replaced with the company name parsed from the URL.
+ */
+const FACTS = [
+  'Tip: on the next screen, drag the time slider to watch {co}’s story unfold week by week.',
+  'Every fact you’ll see links straight to the article it was scraped from — no unsourced claims.',
+  'Did you know? Two senior exits inside 90 days is a classic distress signal.',
+  'A CMO departure often precedes a public sentiment dip by roughly 45 days.',
+  'We cross-check news, court dockets, SEC filings and review sites — then place each on a timeline.',
+  'Litigation spikes frequently trail a leadership shake-up by a quarter or two.',
+  'Quiet pricing-page edits can be an early tell for margin pressure.',
+  'Layoffs usually surface in the press before they ever hit a company blog.',
+  'Hover any node on the next screen to see the exact quote behind it.',
+];
+
+/** Best-effort company label from the /account/<domain> URL, title-cased. */
+function companyFromPath(): string {
+  if (typeof window === 'undefined') return 'this company';
+  const seg = decodeURIComponent(window.location.pathname.split('/').filter(Boolean).pop() ?? '');
+  const base = seg
+    .replace(/\.(com|io|ai|co|net|org|gov)$/i, '')
+    .replace(/[._-]+/g, ' ')
+    .trim();
+  if (!base) return 'this company';
+  return base.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default function AccountLoading() {
   const [stage, setStage] = useState(0);
   const [pct, setPct] = useState(4);
+  const [fact, setFact] = useState(0);
+  // Set client-side (in an effect) so the first paint matches the server and
+  // doesn't trip a hydration mismatch.
+  const [company, setCompany] = useState('this company');
+  useEffect(() => setCompany(companyFromPath()), []);
 
   // Advance through the named stages on a timer.
   useEffect(() => {
     const id = setInterval(() => {
       setStage((s) => (s < STAGES.length - 1 ? s + 1 : s));
     }, 2200);
+    return () => clearInterval(id);
+  }, []);
+
+  // Rotate the "did you know" line on its own, slower cadence.
+  useEffect(() => {
+    const id = setInterval(() => setFact((f) => (f + 1) % FACTS.length), 3800);
     return () => clearInterval(id);
   }, []);
 
@@ -90,7 +130,9 @@ export default function AccountLoading() {
           <div className="tama-shadow" />
         </div>
 
-        <div className="tama-name">Vantagent is running diligence across the open web</div>
+        <div className="tama-name">
+          Vantagent is building the dossier on {company}
+        </div>
         <div className="tama-status">{STAGES[stage].label}</div>
 
         <div className="tama-bar">
@@ -98,10 +140,8 @@ export default function AccountLoading() {
           <div className="tama-pct">{pct}%</div>
         </div>
 
-        <div className="tama-hint">
-          Live analysis · gathering and extracting public web sources across your selected
-          window. This typically takes a minute; results are cached, so future visits load
-          instantly.
+        <div className="tama-hint" key={fact}>
+          {FACTS[fact].replace('{co}', company)}
         </div>
       </div>
     </main>

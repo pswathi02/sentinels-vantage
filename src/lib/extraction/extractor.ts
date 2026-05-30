@@ -158,6 +158,9 @@ Rules:
    - An existing insider moving up → \`promoted_to\`.
    A new hire or appointment is a positive/neutral signal — do NOT label it as a departure.
 7. For events (conferences, product launches, announcements): use the specific event date, not the post date.
+8. Ignore boilerplate. Stock-quote and company-profile pages (e.g. "AAPL Stock Price Today", a Bloomberg/WSJ/FT ticker page, "engages in the design, manufacture, and sale of…") describe what a company *is*, not what just *happened*. Do NOT manufacture events (product launches, partnerships, etc.) from a generic product list or company description. A page listing iPhone/Mac/iPad is NOT evidence that those products "launched" in this window.
+9. The evidence excerpt must directly state the specific relation. If you cannot quote a sentence that asserts the exact fact (who/what/when), do not emit the relation. Never reuse a generic company-description sentence as evidence for a specific event.
+10. Do not emit \`mentioned_in\`. Only extract relations that represent a concrete, dated development.
 `;
 
 export async function extract(
@@ -250,19 +253,21 @@ export async function extract(
       sources: [source],
       observedAt,
     })),
-    relations: raw.relations.map((r, i) => ({
-      id: `rel-${doc.id}-${i}`,
-      fromEntityId: slugifyName(r.fromName),
-      toEntityId: slugifyName(r.toName),
-      kind: correctMgmtKind(r.kind, r.evidence),
-      observedAt,
-      validFrom: coerceIso(r.validFrom, observedAt),
-      validTo: r.validTo ? coerceIso(r.validTo, null) : null,
-      sources: [source],
-      evidence: r.evidence,
-      confidence: r.confidence,
-      attributes: {},
-    })),
+    relations: raw.relations
+      .filter((r) => isTrackableRelation(r.kind, r.evidence))
+      .map((r, i) => ({
+        id: `rel-${doc.id}-${i}`,
+        fromEntityId: slugifyName(r.fromName),
+        toEntityId: slugifyName(r.toName),
+        kind: correctMgmtKind(r.kind, r.evidence),
+        observedAt,
+        validFrom: coerceIso(r.validFrom, observedAt),
+        validTo: r.validTo ? coerceIso(r.validTo, null) : null,
+        sources: [source],
+        evidence: r.evidence,
+        confidence: r.confidence,
+        attributes: {},
+      })),
     events: raw.events.map((e, i) => ({
       id: `evt-${doc.id}-${i}`,
       companyId: slugifyName(e.companyName),
@@ -295,6 +300,31 @@ function correctMgmtKind(kind: string, evidence: string): string {
   if (kind === 'departed' && arrival && !departure) return 'joined';
   if ((kind === 'joined' || kind === 'promoted_to') && departure && !arrival) return 'departed';
   return kind;
+}
+
+// Boilerplate seen on stock-quote / company-profile pages (Bloomberg/WSJ/FT
+// ticker pages). When the "evidence" is this kind of generic blurb, the model
+// is fabricating a signal (e.g. "launched Mac") from a page that contains no
+// such event — so the citation is meaningless.
+const BOILERPLATE_RE =
+  /\b(engages in the (design|business)|stock (price|analysis|chart|quote)|key statistics|company profile|company news|including stock price|breaking news and top stories|latest updates on|p\/e ratio|market cap|shares outstanding)\b/i;
+// Real product launches use release language — a generic product list does not.
+const LAUNCH_VERB_RE =
+  /\b(launch|unveil|releas|introduc|debut|announc|roll(ed)?\s+out|ship(s|ped|ping)?|premier|reveal|deliver)/i;
+
+/**
+ * Keep only relations that represent a real, citable signal. Drops:
+ *  - `mentioned_in` (the page merely references the company — not an event),
+ *  - anything whose evidence is stock-quote / profile boilerplate,
+ *  - `launched` relations with no actual release language in the evidence.
+ */
+function isTrackableRelation(kind: string, evidence: string): boolean {
+  const text = (evidence ?? '').trim();
+  if (text.length < 12) return false;
+  if (kind === 'mentioned_in') return false;
+  if (BOILERPLATE_RE.test(text)) return false;
+  if (kind === 'launched' && !LAUNCH_VERB_RE.test(text)) return false;
+  return true;
 }
 
 /** Coerce a Claude-returned date string ("2022-02", "Feb 2022", etc.) to a full ISO 8601 timestamp. */

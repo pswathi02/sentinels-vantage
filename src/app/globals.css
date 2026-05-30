@@ -2096,7 +2096,13 @@ input[type="range"] {
   font-size: 0.78rem;
   line-height: 1.5;
   color: var(--text-faint);
-  max-width: 420px;
+  max-width: 440px;
+  min-height: 2.4em;
+  animation: tama-fact 0.5s ease;
+}
+@keyframes tama-fact {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes tama-bob {
@@ -2135,7 +2141,7 @@ input[type="range"] {
 
 @media (prefers-reduced-motion: reduce) {
   .tama-orbit, .tama-ico i, .tama-scout, .tama-shadow, .tama-hand-h, .tama-hand-m,
-  .tama-blip, .tama-eyes, .tama-pupil, .tama-status {
+  .tama-blip, .tama-eyes, .tama-pupil, .tama-status, .tama-hint {
     animation: none !important;
   }
 }
