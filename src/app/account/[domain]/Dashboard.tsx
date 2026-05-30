@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import type { Dossier } from '@/lib/pipeline';
 import type { TemporalRelation, RelationKind, RiskSeverity } from '@/lib/schema';
 import {
@@ -190,9 +191,26 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: 'memo', label: 'Ask & Memo', hint: 'Cited Q&A and the diligence memo' },
 ];
 
+const LOOKBACK_WINDOWS = [30, 90, 180] as const;
+
 export function Dashboard({ dossier, demoMode }: { dossier: Dossier; demoMode?: boolean }) {
+  const router = useRouter();
+  const pathname = usePathname();
+
   const fromMs = Date.parse(dossier.window.from);
   const toMs = Date.parse(dossier.window.to);
+  // The active window comes straight from the dossier the server built, so the
+  // selector below always reflects what's actually rendered.
+  const lookbackDays = Math.max(1, Math.round((toMs - fromMs) / DAY));
+
+  // Switching the window re-runs the server pipeline (and shows the loader for
+  // live targets) without making the user go back to the landing page.
+  const [pendingDays, setPendingDays] = useState<number | null>(null);
+  function changeWindow(days: number) {
+    if (days === lookbackDays) return;
+    setPendingDays(days);
+    router.push(`${pathname}?days=${days}`);
+  }
 
   const [cursor, setCursor] = useState(toMs);
   const [playing, setPlaying] = useState(false);
@@ -254,10 +272,14 @@ export function Dashboard({ dossier, demoMode }: { dossier: Dossier; demoMode?: 
 
   // ── graph model: real entities + synthesised company-signal nodes ──
   const graph = useMemo(() => {
-    const cx = 350;
-    const cy = 210;
-    const r = 165;
+    const cx = 400;
+    const cy = 270;
     const labelGap = 24;
+    // Concentric rings (inner→outer). Each holds more nodes than the last so
+    // the arc spacing between neighbours stays roughly constant and readable.
+    const RING_R = [120, 188, 252];
+    const RING_CAP = [7, 12, 18];
+    const round2 = (v: number) => Math.round(v * 100) / 100;
     const company = dossier.entities.find((e) => e.id === dossier.companyId);
     const realSats = dossier.entities.filter((e) => e.id !== dossier.companyId);
     const selfKinds = Array.from(
@@ -299,23 +321,66 @@ export function Dashboard({ dossier, demoMode }: { dossier: Dossier; demoMode?: 
     const pos = new Map<string, { x: number; y: number }>();
     pos.set(dossier.companyId, { x: cx, y: cy });
 
-    // Lay out every node (hidden ones stay in place, just dimmed in render).
-    const nodes = sats.map((s, i) => {
-      const a = (i / sats.length) * Math.PI * 2 - Math.PI / 2;
-      const x = cx + r * Math.cos(a);
-      const y = cy + r * Math.sin(a);
-      pos.set(s.id, { x, y });
+    // Rank satellites by connection count so the most-connected (most relevant)
+    // get the prime inner-ring spots; weakly-connected ones move outward.
+    const degree = new Map<string, number>();
+    for (const rel of dossier.relations) {
+      const toId = rel.fromEntityId === rel.toEntityId ? `sig:${rel.kind}` : rel.toEntityId;
+      degree.set(rel.fromEntityId, (degree.get(rel.fromEntityId) ?? 0) + 1);
+      degree.set(toId, (degree.get(toId) ?? 0) + 1);
+    }
+    const ranked = [...sats].sort(
+      (a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0),
+    );
+
+    // Assign each node to a ring (fill inner rings first). Anything beyond the
+    // canvas capacity stays in the Sources list only, so the graph never turns
+    // into an unreadable hairball.
+    const CANVAS_CAP = RING_CAP.reduce((s, c) => s + c, 0);
+    const placements = ranked.slice(0, CANVAS_CAP).map((s, idx) => {
+      let ring = 0;
+      let acc = 0;
+      while (ring < RING_CAP.length - 1 && idx >= acc + RING_CAP[ring]) {
+        acc += RING_CAP[ring];
+        ring += 1;
+      }
+      return { sat: s, ring, within: idx - acc };
+    });
+    const ringTotals = RING_CAP.map((_, k) => placements.filter((p) => p.ring === k).length);
+
+    const onCanvasNodes = placements.map(({ sat, ring, within }) => {
+      const total = Math.max(ringTotals[ring], 1);
+      // Stagger each ring's start angle so neighbouring rings interleave instead
+      // of lining up radially (keeps labels from stacking on top of each other).
+      const offset = (ring * Math.PI) / total;
+      const a = (within / total) * Math.PI * 2 - Math.PI / 2 + offset;
+      const rad = RING_R[ring];
+      const x = round2(cx + rad * Math.cos(a));
+      const y = round2(cy + rad * Math.sin(a));
+      pos.set(sat.id, { x, y });
       const cos = Math.cos(a);
       const anchor: 'start' | 'end' | 'middle' = cos > 0.3 ? 'start' : cos < -0.3 ? 'end' : 'middle';
       return {
-        ...s,
+        ...sat,
         x,
         y,
-        lx: x + cos * labelGap,
-        ly: y + Math.sin(a) * labelGap,
+        lx: round2(x + cos * labelGap),
+        ly: round2(y + Math.sin(a) * labelGap),
         anchor,
+        onCanvas: true,
       };
     });
+    // Overflow nodes: present in the Sources list, not drawn on the canvas.
+    const overflowNodes = ranked.slice(CANVAS_CAP).map((s) => ({
+      ...s,
+      x: 0,
+      y: 0,
+      lx: 0,
+      ly: 0,
+      anchor: 'middle' as const,
+      onCanvas: false,
+    }));
+    const nodes = [...onCanvasNodes, ...overflowNodes];
 
     const edges = dossier.relations.map((rel) => {
       const toId = rel.fromEntityId === rel.toEntityId ? `sig:${rel.kind}` : rel.toEntityId;
@@ -580,8 +645,8 @@ export function Dashboard({ dossier, demoMode }: { dossier: Dossier; demoMode?: 
       </div>
       <div className="dash-sub">
         Temporal knowledge graph · {dossier.entities.length} entities ·{' '}
-        {dossier.relations.length} timestamped relations · {dossier.events.length} events ·
-        180-day window
+        {dossier.relations.length} timestamped relations · {dossier.events.length} events ·{' '}
+        {lookbackDays}-day window
       </div>
 
       {/* ── tab nav ── */}
@@ -635,6 +700,23 @@ export function Dashboard({ dossier, demoMode }: { dossier: Dossier; demoMode?: 
       <div className="panel graphbox" id="sec-graph" ref={graphRef}>
         <div className="graphbox-head">
           <h2>Knowledge graph + time replay</h2>
+          <div className="winsel no-print" role="group" aria-label="Lookback window">
+            <span className="winsel-lbl">Window</span>
+            {LOOKBACK_WINDOWS.map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={`winsel-btn${d === lookbackDays ? ' active' : ''}${
+                  pendingDays === d ? ' pending' : ''
+                }`}
+                onClick={() => changeWindow(d)}
+                disabled={pendingDays !== null}
+                title={`Rebuild over the last ${d} days`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* replay: date + play (left), slider + icon timeline (right, same icons as graph) */}
@@ -732,7 +814,7 @@ export function Dashboard({ dossier, demoMode }: { dossier: Dossier; demoMode?: 
             })}
           </aside>
 
-          <svg className="graph-svg" viewBox="0 0 700 420">
+          <svg className="graph-svg" viewBox="0 0 800 560">
             {graph.edges.map((e) => {
               if (!e.from || !e.to) return null;
               const edgeHidden = hidden.has(e.fromId) || hidden.has(e.toId);
@@ -785,6 +867,7 @@ export function Dashboard({ dossier, demoMode }: { dossier: Dossier; demoMode?: 
 
             {/* satellites: entities (circles) + company signals (diamonds) */}
             {graph.nodes.map((n) => {
+              if (!n.onCanvas) return null;
               const isHidden = hidden.has(n.id);
               const on = activeNodeIds.has(n.id);
               const op = isHidden ? 0.16 : on ? 1 : 0.32;
@@ -922,7 +1005,7 @@ export function Dashboard({ dossier, demoMode }: { dossier: Dossier; demoMode?: 
       <div className="panel" id="sec-trajectory" style={{ marginTop: 20 }}>
         <h2>Executive departures over time · weekly</h2>
         <p className="chart-help">
-          Each bar is one week of the 180-day window. Taller red bars = more executives
+          Each bar is one week of the {lookbackDays}-day window. Taller red bars = more executives
           left that week. Bars past the slider position are dimmed. Hover a bar for who left.
         </p>
         <div className="traj-readout">

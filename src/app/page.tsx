@@ -22,10 +22,11 @@ export default function Home() {
   return (
     <main className="shell">
       <section className="hero">
-        <h1>Time-travel for the open web</h1>
+        <h1>Due diligence, on a timeline</h1>
         <p>
-          Drag the slider. See what changed. Catch what others missed. Vantage turns the
-          open web into a queryable, time-aware knowledge graph for any company.
+          Vantage assembles a time-aware knowledge graph of any company from public web
+          sources — leadership changes, litigation, layoffs, pricing, and sentiment — so you
+          can scrub back through its recent history. Every fact links to its original source.
         </p>
 
         <form className="search" action="/account" method="get">
@@ -45,7 +46,8 @@ export default function Home() {
           </button>
         </form>
         <p className="search-hint">
-          Shorter windows pull less data and finish faster. Default is 30 days.
+          Choose how far back to look. Shorter windows return results faster — 30 days is a
+          good place to start.
         </p>
       </section>
 

@@ -72,10 +72,25 @@ export async function buildGraph(
     .slice(0, MAX_DOCS);
 
   const extractions: (Awaited<ReturnType<typeof extract>> | null)[] = new Array(docs.length).fill(null);
+  let extractFailures = 0;
+  let lastError: unknown = null;
   await runWithConcurrency(docs, async (d) => {
     const i = docs.indexOf(d);
-    extractions[i] = await extract(d, target).catch(() => null);
+    extractions[i] = await extract(d, target).catch((err) => {
+      extractFailures += 1;
+      lastError = err;
+      return null;
+    });
   }, EXTRACT_CONCURRENCY);
+
+  // If every extraction failed, the dashboard would silently show 0 entities.
+  // Surface the underlying reason in the server log so it's diagnosable.
+  if (docs.length > 0 && extractFailures === docs.length) {
+    console.error(
+      `[pipeline] all ${docs.length} extractions failed for "${target}" — ` +
+        `${String((lastError as Error)?.message ?? lastError)}`,
+    );
+  }
 
   const graph = createGraph();
   const events: Event[] = [];
@@ -102,7 +117,10 @@ export async function buildDossier(
   const fetched = !isDemoTarget(target);
   if (fetched) {
     const hit = cacheGet<Dossier>(cacheKey);
-    if (hit) return hit.value;
+    // Treat a 0-entity cache entry as a miss so a stale/poisoned empty result
+    // (e.g. written by an older build, or a transient extraction failure) can
+    // self-heal on the next request instead of being served forever.
+    if (hit && hit.value.entities.length > 0) return hit.value;
   }
 
   const { graph, events } = await buildGraph(target, lookbackDays);

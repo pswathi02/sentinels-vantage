@@ -87,8 +87,9 @@ a {
 }
 .search {
   display: flex;
+  align-items: stretch;
   gap: 10px;
-  max-width: 520px;
+  max-width: 660px;
   margin: 32px auto 0;
 }
 .search input {
@@ -110,10 +111,14 @@ a {
   color: #04101f;
   border: none;
   border-radius: var(--radius);
-  padding: 0 22px;
+  padding: 0 26px;
   font-weight: 600;
   font-size: 15px;
+  white-space: nowrap;
   cursor: pointer;
+}
+.search .btn {
+  flex: 0 0 auto;
 }
 .btn:hover {
   filter: brightness(1.08);
@@ -368,7 +373,7 @@ input[type="range"] {
 /* ── Graph SVG ──────────────────────────────────────── */
 .graph-svg {
   width: 100%;
-  height: 420px;
+  height: 500px;
   display: block;
 }
 .node-label {
@@ -821,6 +826,50 @@ input[type="range"] {
 }
 .graphbox-head h2 {
   margin: 0;
+}
+/* lookback window selector (30 / 90 / 180) next to the time graph */
+.winsel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-elev);
+}
+.winsel-lbl {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  padding: 0 6px 0 4px;
+}
+.winsel-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.winsel-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+.winsel-btn.active {
+  background: var(--accent);
+  color: #04101f;
+}
+.winsel-btn.pending {
+  opacity: 0.6;
+}
+.winsel-btn:disabled {
+  cursor: progress;
 }
 .graphbox-body {
   display: grid;
@@ -1920,27 +1969,36 @@ input[type="range"] {
   justify-content: center;
 }
 
-/* orbiting dots that echo the radial knowledge graph */
+/* diligence-vocabulary icons orbit the scout — same glyphs as the graph */
 .tama-orbit {
   position: absolute;
   inset: 0;
   animation: tama-spin 9s linear infinite;
 }
-.tama-dot {
+.tama-ico {
   position: absolute;
-  width: 9px;
-  height: 9px;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  display: grid;
+  place-items: center;
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 10px var(--accent);
-  top: 50%;
-  left: 50%;
-  margin: -4.5px 0 0 -4.5px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  box-shadow: 0 0 12px rgba(77, 163, 255, 0.22);
+  font-size: 15px;
+  line-height: 1;
 }
-.tama-dot.d1 { transform: translateX(100px); background: var(--accent); box-shadow: 0 0 10px var(--accent); }
-.tama-dot.d2 { transform: rotate(90deg) translateX(100px); background: var(--warn); box-shadow: 0 0 10px var(--warn); }
-.tama-dot.d3 { transform: rotate(180deg) translateX(100px); background: var(--purple); box-shadow: 0 0 10px var(--purple); }
-.tama-dot.d4 { transform: rotate(270deg) translateX(100px); background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+.tama-ico i {
+  display: block;
+  font-style: normal;
+  /* counter-rotate so each glyph stays upright while the ring spins */
+  animation: tama-spin-rev 9s linear infinite;
+}
+.tama-ico.i1 { left: 110px; top: 18px; }
+.tama-ico.i2 { left: 202px; top: 110px; }
+.tama-ico.i3 { left: 110px; top: 202px; }
+.tama-ico.i4 { left: 18px; top: 110px; }
 
 /* the scout bobs up and down */
 .tama-scout {
@@ -1971,6 +2029,11 @@ input[type="range"] {
   transform-origin: 60px 80px; animation: tama-spin 1.2s linear infinite;
 }
 .tama-foot { fill: var(--accent); }
+
+/* corporate collar + necktie */
+.tama-collar { fill: #eaf3ff; }
+.tama-knot { fill: var(--accent); }
+.tama-tie { fill: var(--accent); }
 
 .tama-shadow {
   position: absolute;
@@ -2048,6 +2111,10 @@ input[type="range"] {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+@keyframes tama-spin-rev {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
 @keyframes tama-blink {
   0%, 92%, 100% { transform: scaleY(1); }
   96% { transform: scaleY(0.1); }
@@ -2067,7 +2134,7 @@ input[type="range"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tama-orbit, .tama-scout, .tama-shadow, .tama-hand-h, .tama-hand-m,
+  .tama-orbit, .tama-ico i, .tama-scout, .tama-shadow, .tama-hand-h, .tama-hand-m,
   .tama-blip, .tama-eyes, .tama-pupil, .tama-status {
     animation: none !important;
   }

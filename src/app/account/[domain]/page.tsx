@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { buildDossier } from '@/lib/pipeline';
 import { isDemoTarget, listDemoTargets } from '@/lib/fixtures';
+import { env } from '@/lib/env';
 import { Dashboard } from './Dashboard';
 
 const ALLOWED_DAYS = [30, 90, 180];
@@ -18,7 +19,7 @@ export default async function AccountPage({
   const lookbackDays = ALLOWED_DAYS.includes(Number(days)) ? Number(days) : 30;
 
   const hasFixture = isDemoTarget(target);
-  const canFetchLive = Boolean(process.env.ANTHROPIC_API_KEY);
+  const canFetchLive = Boolean(env('ANTHROPIC_API_KEY'));
 
   // Unknown (typed-in) domain with no way to fetch it live → friendly message
   // instead of an empty dashboard. Registered targets always render from fixtures.

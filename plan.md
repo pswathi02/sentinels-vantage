@@ -1,7 +1,79 @@
 # Vantage — Execution Plan
 
 > Built from a full read of every source file. Tracks exact current state and what to do next.
-> **Today:** 2026-05-29 | **Target:** Bright Data Hackathon submission
+> **Today:** 2026-05-30 | **Target:** Bright Data Hackathon submission
+
+---
+
+## 🟢 Status update — live-fetch reliability + graph readability (2026-05-30)
+
+Hardened the **typed-in (live) path** end-to-end and made the knowledge graph readable for
+large companies.
+
+**Done:**
+- ✅ **Fixed "new companies return 0 entities".** Two root causes:
+  1. An empty-string `ANTHROPIC_API_KEY` in the shell silently shadowed `.env.local`
+     (Node `--env-file` / `@next/env` don't override already-set vars), so the Anthropic
+     client was built with no key and every extraction failed → 0 entities. New
+     **`src/lib/env.ts`** `env()` helper treats empty/whitespace as unset and backfills
+     missing keys from `.env.local`. Wired into the extractor, Bright Data client, pipeline,
+     and the `[domain]` page. Live runs now succeed (e.g. `starbucks.com` → ~49 entities).
+  2. **Stale empty-dossier cache entries** (written before the "never cache empty" guard
+     existed) were served instantly for 6h. Cleared the poisoned `.cache/` files and added a
+     **self-healing read guard** in `pipeline.ts`: a 0-entity cache hit is now treated as a
+     miss, so a transient failure can't stick.
+- ✅ **Extraction failures are now surfaced** — if every doc's extraction fails,
+  `pipeline.ts` logs the underlying error instead of silently rendering an empty dashboard.
+- ✅ **Lookback selector moved next to the graph** — 30 / 90 / 180-day buttons in the
+  graph header re-run the server pipeline via `?days=N` (no trip back to the landing page).
+  All "window" copy now reflects the active `lookbackDays`, not a hardcoded 180.
+- ✅ **Landing + loader polish for judges** — the loader mascot is now **"Vantagent"**, an
+  IB/PE-styled character (tie/collar) orbited by the people / litigation / filings / company
+  icons used elsewhere; the search row is no longer squished; hero + hint copy rewritten in
+  professional product voice (not dev-demo wording).
+- ✅ **Readable knowledge graph** — replaced the single overloaded ring with a
+  **degree-ranked, 3-ring concentric layout** (most-connected entities innermost, staggered
+  ring angles so labels don't stack). The canvas is capped at 37 nodes; overflow stays in the
+  scrollable **Sources** list. Larger viewBox (`800×560`). Also **fixed a React hydration
+  error** by rounding all SVG coordinates to 2 dp (float string mismatch between SSR + client).
+
+---
+
+## 🟢 Status update — fixture-first routing + live MCP wired (2026-05-30)
+
+The demo and live stacks converged on **one code path**. The routing decision is now
+**per-target** (does a fixture exist?), not a global `DEMO_MODE` flag.
+
+**Done since the 2026-05-29 update:**
+- ✅ **New demo registry** — Peloton/WeWork/Klaviyo retired; the three live pre-cached
+  targets are **`spirit.com`** (Spirit Airlines distress arc), **`wiz.io`** (breakout growth
+  → Google's $32B acquisition), **`everlane.com`** (mixed arc → Shein acquisition). Every
+  fixture uses **real source URLs**, so each citation opens the exact article.
+- ✅ **Fixture-first routing, decoupled from `DEMO_MODE`** — `isDemoTarget(target)` gates the
+  data path. Registered fixtures **always** serve pre-cached data (`ingestAll`/`extract`
+  short-circuit to the fixture, never fetch). Typed-in domains fetch live, **cache-first**
+  (6h disk TTL in `src/lib/cache.ts`); empty/failed runs are never cached so a retry can
+  still succeed. `DEMO_MODE` is now **cosmetic** — only toggles the topbar badge.
+- ✅ **Bright Data MCP wired** — `client.ts` talks to the MCP server over SSE;
+  `resolveMcpUrl()` normalizes `BRIGHTDATA_MCP_URL` (adds `/sse`, substitutes the token
+  placeholder). Token rides in the URL (no `Authorization` header). `recordBrightData(1)`
+  meters each call at call-start.
+- ✅ **Model id fixed** — `extractor.ts` now uses `claude-sonnet-4-6` (was a stale id).
+- ✅ **UX adds** — route-level VANTA loader (`loading.tsx`) during live fetch, live usage
+  widget (`api/usage/route.ts` + `UsageWidget.tsx`, metering in `src/lib/usage.ts`),
+  selectable lookback window (30 / 90 / 180 days, default 30).
+- ✅ **UI memo redesign + scope-filtering merged** — the `memo-redesign-scope-filtering`
+  branch was merged into main (UI changes from the branch, backend/data from main). Adds the
+  scope-control, in-scope dossier filtering by hidden entities, and the IC callout.
+
+**Still pending (live track):**
+- 🟡 Phase 2 — Postgres persistence (graph + dossiers are in-memory / disk-cache only).
+- 🟡 Phase 6 — dedicated API routes (the dashboard renders server-side from `buildDossier`).
+- 🟡 Analog search remains a **demo mock** until a multi-company signal index exists.
+
+> The dated blocks above are the source of truth; the original phases below are kept for
+> reference. Items there that are now done (model id, MCP client, landing page, dashboard,
+> intelligence layer) are reflected in the two status blocks.
 
 ---
 

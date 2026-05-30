@@ -17,6 +17,8 @@
  * token from BRIGHTDATA_API_TOKEN when the placeholder is present or token missing.
  */
 
+import { env } from '@/lib/env';
+
 const TOKEN_PLACEHOLDER = 'YOUR_BRIGHTDATA_API_TOKEN';
 
 /**
@@ -28,8 +30,8 @@ const TOKEN_PLACEHOLDER = 'YOUR_BRIGHTDATA_API_TOKEN';
  *   - fully-formed url:     used as-is
  */
 export function resolveMcpUrl(): string {
-  const raw = process.env.BRIGHTDATA_MCP_URL?.trim() || 'https://mcp.brightdata.com/sse';
-  const token = process.env.BRIGHTDATA_API_TOKEN?.trim();
+  const raw = env('BRIGHTDATA_MCP_URL')?.trim() || 'https://mcp.brightdata.com/sse';
+  const token = env('BRIGHTDATA_API_TOKEN')?.trim();
 
   let url: URL;
   try {
@@ -253,7 +255,7 @@ export async function brightDataDataset(
   datasetId: string,
   filter: Record<string, unknown>,
 ): Promise<unknown[]> {
-  const TOKEN = process.env.BRIGHTDATA_API_TOKEN;
+  const TOKEN = env('BRIGHTDATA_API_TOKEN');
   const BASE = 'https://api.brightdata.com/datasets/v3';
 
   const triggerRes = await fetch(`${BASE}/trigger?dataset_id=${datasetId}&format=json`, {

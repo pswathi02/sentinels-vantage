@@ -2,8 +2,9 @@
 
 **Temporal due diligence on the open web.** Type a company domain and Vantage builds a
 time-aware knowledge graph from public sources — then lets you drag a slider backwards
-through the last 180 days to watch the company's story (exec departures, layoffs,
-lawsuits, sentiment, pricing) rebuild itself in front of you. Every claim is cited.
+through a selectable window (30 / 90 / 180 days, default 30) to watch the company's story
+(exec departures, layoffs, lawsuits, sentiment, pricing) rebuild itself in front of you.
+Every claim is cited to its real source URL.
 
 Bright Data Hackathon · Track 2 (Finance / Market Intelligence) · Team **Sentinels**.
 
@@ -16,7 +17,7 @@ You need **Node 20+** and **npm**. No database, no API keys required to run the 
 ```bash
 npm install
 npm run dev
-# open http://localhost:3000  →  click the "peloton.com" card
+# open http://localhost:3000  →  click the "spirit.com" card
 ```
 
 That's it. The app boots in **demo mode** by default and serves hand-authored fixtures
@@ -28,21 +29,23 @@ you see on screen is exactly what live data will produce, just without the netwo
 ```bash
 npm run typecheck        # tsc --noEmit, must be clean
 npm run test:schema      # validates the Zod schemas
-npm run dilly peloton.com   # runs the pipeline in the terminal (no UI)
+npm run dilly spirit.com    # runs the pipeline in the terminal (no UI)
 ```
 
 ---
 
-## Demo mode vs. live mode
+## Pre-cached targets vs. live fetch
 
-Vantage has one code path. A single seam decides whether data comes from fixtures or the
-live web — the UI never changes.
+Vantage has one code path. The routing decision is **per-target**, keyed on whether a
+hand-curated fixture exists — *not* on a global `DEMO_MODE` flag. The UI never changes.
 
-| | Demo mode (default) | Live mode |
+| | Pre-cached target | Typed-in URL |
 |---|---|---|
-| Trigger | no `ANTHROPIC_API_KEY`, **or** `DEMO_MODE=1` | `ANTHROPIC_API_KEY` set and `DEMO_MODE` not `1` |
-| Ingest | `getDemoTarget()` returns cached `RawDoc[]` | Bright Data scrapers → `RawDoc[]` |
+| Examples | `spirit.com`, `wiz.io`, `everlane.com` | any other domain (e.g. `starbucks.com`) |
+| Trigger | `getDemoTarget(target)` returns a fixture | no fixture registered |
+| Ingest | cached `RawDoc[]` — **always served, never fetched** | Bright Data scrapers → `RawDoc[]` |
 | Extract | cached `ExtractionResult` per doc | Claude tool-use → `ExtractionResult` |
+| Caching | n/a (already instant) | disk-cached 6h (cache-first), empty runs not cached |
 | Everything after | identical | identical |
 
 The contract both sides satisfy:
@@ -52,16 +55,27 @@ ingestAll(target)        → { docs: RawDoc[], errors }
 extract(doc, target)     → ExtractionResult   // entities + temporal relations + events
 ```
 
-Live data "just flows" the moment those two functions return real results instead of
-fixtures. See the **Live-data bridge** section below for what's left to wire.
+Pre-cached targets always serve their fixtures (with **real source URLs**, so citation
+links open the exact article). Any other domain is fetched live and cached. A typed-in
+URL with **no `ANTHROPIC_API_KEY`** configured shows a friendly "add your keys" message
+instead of an empty dashboard.
 
-To use live mode locally:
+> `DEMO_MODE` is now cosmetic — it only toggles the "DEMO MODE" badge in the topbar. The
+> data path ignores it.
+
+To enable live fetch for arbitrary domains, set credentials in `.env.local`:
 
 ```bash
 cp .env.example .env.local
-# fill ANTHROPIC_API_KEY (and BRIGHTDATA_API_TOKEN once the client is wired)
-DEMO_MODE=0 npm run dev
+# ANTHROPIC_API_KEY=sk-ant-...
+# BRIGHTDATA_API_TOKEN=...
+# BRIGHTDATA_MCP_URL=https://mcp.brightdata.com/sse?token=YOUR_BRIGHTDATA_API_TOKEN
+npm run dev
 ```
+
+`resolveMcpUrl()` in `client.ts` normalizes the MCP URL: it adds the `/sse` path and
+substitutes `BRIGHTDATA_API_TOKEN` for the `YOUR_BRIGHTDATA_API_TOKEN` placeholder (a bare
+`https://mcp.brightdata.com` base also works).
 
 ---
 
@@ -92,41 +106,52 @@ domain ─► ingestAll ─► RawDoc[] ─► extract (per doc) ─► Extracti
 | Path | What it is | State |
 |---|---|---|
 | `src/lib/schema.ts` | Zod schemas (the contract) | ✅ done |
-| `src/lib/fixtures/peloton.ts` | Hand-authored Peloton-collapse demo data | ✅ done |
-| `src/lib/fixtures/index.ts` | Demo registry + `isDemoMode()` | ✅ done |
-| `src/lib/brightdata/sources.ts` | Source adapters + `ingestAll` (demo branch wired) | 🟡 live calls stubbed |
-| `src/lib/brightdata/client.ts` | Bright Data transport | 🟡 endpoints are placeholders |
-| `src/lib/extraction/extractor.ts` | Claude extraction (demo branch wired) | 🟡 model id + prompt to finalize |
+| `src/lib/fixtures/spirit.ts` | Hand-authored Spirit Airlines demo data | ✅ done |
+| `src/lib/fixtures/wiz.ts` | Hand-authored Wiz breakout-growth demo data | ✅ done |
+| `src/lib/fixtures/everlane.ts` | Hand-authored Everlane mixed-arc demo data | ✅ done |
+| `src/lib/fixtures/index.ts` | Demo registry + `isDemoTarget()` / `isDemoMode()` | ✅ done |
+| `src/lib/brightdata/sources.ts` | Source adapters + `ingestAll` (fixture branch wired) | ✅ live adapters wired |
+| `src/lib/brightdata/client.ts` | Bright Data MCP transport + `resolveMcpUrl()` | ✅ wired (MCP over SSE) |
+| `src/lib/extraction/extractor.ts` | Claude extraction (tool-use, fixture branch wired) | ✅ model id current |
 | `src/lib/graph/store.ts` | graphology graph + merge | ✅ in-memory (no DB yet) |
 | `src/lib/temporal/query.ts` | `activeRelationsAt` / `diff` / `traverse` | ✅ done |
-| `src/lib/pipeline.ts` | `buildGraph` / `buildDossier` | ✅ done |
+| `src/lib/pipeline.ts` | `buildGraph` / `buildDossier` (fixture-first routing) | ✅ done |
 | `src/lib/diligence.ts` | delta / memo / Q&A / analog (pure) | ✅ done |
+| `src/lib/cache.ts` | disk cache for live-fetched dossiers (6h TTL) | ✅ done |
+| `src/lib/usage.ts` | Anthropic + Bright Data token/call metering | ✅ done |
 | `src/app/page.tsx` | Landing + demo cards | ✅ done |
 | `src/app/account/[domain]/` | Dashboard (slider, graph, signals, delta, Q&A, memo) | ✅ done |
+| `src/app/account/[domain]/loading.tsx` | Route-level VANTA loader during live fetch | ✅ done |
+| `src/app/api/usage/route.ts` + `UsageWidget.tsx` | Live usage readout in the topbar | ✅ done |
 
 ---
 
 ## Live-data bridge (what makes real data flow)
 
-The demo and live paths meet at the adapter seam. To switch Peloton (or any new target)
-from fixtures to live:
+The pre-cached and live paths meet at the adapter seam, and the live side is now **wired**:
 
-1. **Bright Data client** — `src/lib/brightdata/client.ts` currently posts to placeholder
-   paths (`${MCP_URL}/serp`, `/unlock`). Replace with real Bright Data endpoints (SERP API,
-   Web Unlocker proxy, Scraping Browser CDP, Datasets v3).
-2. **Extraction model** — `src/lib/extraction/extractor.ts` uses a stale model id; point it
-   at the current Claude model and confirm the tool-use schema matches `ExtractionResult`.
-3. **`DEMO_MODE` precedence** — make it explicit: `DEMO_MODE=1` → always demo, `DEMO_MODE=0`
-   → always live, unset → demo only if a fixture exists for the target.
-4. **Parity test** — run one target live and diff the dossier shape against the fixture to
-   confirm the UI needs zero changes.
+1. **Bright Data client** — `src/lib/brightdata/client.ts` talks to the Bright Data **MCP
+   server over SSE**. `resolveMcpUrl()` normalizes `BRIGHTDATA_MCP_URL` (adds the `/sse`
+   path, substitutes `BRIGHTDATA_API_TOKEN` for the placeholder), and the token rides in the
+   URL — no `Authorization` header. `recordBrightData(1)` meters each call at call-start.
+2. **Extraction model** — `src/lib/extraction/extractor.ts` uses the current Claude model
+   (`claude-sonnet-4-6`) via tool-use, with the `record_extraction` tool schema mirroring
+   `ExtractionResult`. Temperature 0 for determinism, retry-on-429 with backoff.
+3. **Routing (no longer `DEMO_MODE`-gated)** — the per-target decision is keyed on whether a
+   fixture exists: `isDemoTarget(target)` → always serve fixtures; otherwise fetch live and
+   disk-cache (cache-first, 6h, empty runs never cached). `DEMO_MODE` is cosmetic.
+4. **Parity** — the live and fixture paths return the same `Dossier` shape, so the UI needs
+   zero changes between a pre-cached card and a typed-in domain.
 
-These are tracked as tasks in the session and summarized in `plan.md`.
+Remaining live-data work and history are summarized in `plan.md`.
 
 ---
 
 ## Adding a new demo target
 
-1. Copy `src/lib/fixtures/peloton.ts` → `wework.ts`, edit the entities/relations/events.
-2. Register it in `src/lib/fixtures/index.ts` (`REGISTRY['wework.com'] = …`).
-3. Enable its card in `src/app/page.tsx`.
+1. Copy `src/lib/fixtures/spirit.ts` → `acme.ts`, edit the entities/relations/events. Keep
+   the `src()` / `evt()` helpers and anchor dates with `daysAgoIso(N)`. Use **real source
+   URLs** so each citation opens the exact article.
+2. Register it in `src/lib/fixtures/index.ts` (`REGISTRY['acme.com'] = …`). `isDemoTarget`
+   then returns true for that domain, so it always serves from the fixture (never fetched).
+3. Enable its card in `src/app/page.tsx` (add to `DEMO_TARGETS`).

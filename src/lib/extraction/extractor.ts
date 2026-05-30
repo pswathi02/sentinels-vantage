@@ -18,10 +18,19 @@ import {
   nowIso,
 } from '@/lib/schema';
 import { getDemoTarget } from '@/lib/fixtures';
+import { env } from '@/lib/env';
 
 let _client: Anthropic | null = null;
 function client(): Anthropic {
-  if (!_client) _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (!_client) {
+    const apiKey = env('ANTHROPIC_API_KEY');
+    if (!apiKey) {
+      throw new Error(
+        'ANTHROPIC_API_KEY is not set (or is empty). Add it to .env.local — live extraction needs it.',
+      );
+    }
+    _client = new Anthropic({ apiKey });
+  }
   return _client;
 }
 
