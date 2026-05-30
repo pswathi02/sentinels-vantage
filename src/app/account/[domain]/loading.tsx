@@ -99,8 +99,9 @@ export default function AccountLoading() {
         </div>
 
         <div className="tama-hint">
-          Live mode · pulling fresh data across the lookback window. Pre-cached targets load
-          instantly — this one is being scraped &amp; extracted right now.
+          Live analysis · gathering and extracting public web sources across your selected
+          window. This typically takes a minute; results are cached, so future visits load
+          instantly.
         </div>
       </div>
     </main>
