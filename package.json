@@ -7,9 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "dilly": "tsx scripts/dilly.ts",
-    "test:schema": "tsx scripts/test-schema.ts",
-    "test:brightdata": "tsx scripts/test-brightdata.ts",
+    "dilly": "node --env-file=.env.local --import=tsx/esm scripts/dilly.ts",
+    "test:schema": "node --env-file=.env.local --import=tsx/esm scripts/test-schema.ts",
+    "test:brightdata": "node --env-file=.env.local --import=tsx/esm scripts/test-brightdata.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

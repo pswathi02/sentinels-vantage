@@ -51,7 +51,7 @@ export const RawDoc = z.object({
   body: z.string(),
   publishedAt: z.string().datetime().nullable(),
   scrapedAt: z.string().datetime(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type RawDoc = z.infer<typeof RawDoc>;
 
@@ -77,7 +77,7 @@ export const Entity = z.object({
   type: EntityType,
   name: z.string(),
   aliases: z.array(z.string()).default([]),
-  attributes: z.record(z.unknown()).default({}),
+  attributes: z.record(z.string(), z.unknown()).default({}),
   sources: z.array(SourceRef).default([]),
   observedAt: z.string().datetime(),
 });
@@ -130,7 +130,7 @@ export const TemporalRelation = z.object({
   evidence: z.string(),            // direct quote / excerpt
   confidence: z.number().min(0).max(1),
 
-  attributes: z.record(z.unknown()).default({}),
+  attributes: z.record(z.string(), z.unknown()).default({}),
 });
 export type TemporalRelation = z.infer<typeof TemporalRelation>;
 

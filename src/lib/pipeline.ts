@@ -31,14 +31,45 @@ export interface Dossier {
 const LOOKBACK_DAYS = 180;
 
 /** Build the in-memory graph for a target (used by CLI + tests). */
+const MAX_DOCS = 15;
+const EXTRACT_CONCURRENCY = 2;
+
+// Source priority for trimming — news > legal > corporate > SEC bulk filings
+const SOURCE_PRIORITY: Record<string, number> = {
+  serp_news: 10, pacer: 8, linkedin_company: 7, linkedin_employee: 7,
+  glassdoor_reviews: 6, corporate_site: 5, pricing_page: 5, sec_edgar: 3, dataset_backfill: 2,
+};
+
+async function runWithConcurrency<T>(
+  items: T[],
+  fn: (item: T) => Promise<unknown>,
+  concurrency: number,
+): Promise<void> {
+  let idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, worker));
+}
+
 export async function buildGraph(
   target: string,
 ): Promise<{ graph: VantageGraph; events: Event[]; errors: Array<{ source: string; error: string }> }> {
-  const { docs, errors } = await ingestAll(target, { lookbackDays: LOOKBACK_DAYS });
+  const { docs: allDocs, errors } = await ingestAll(target, { lookbackDays: LOOKBACK_DAYS });
 
-  const extractions = await Promise.all(
-    docs.map((d) => extract(d, target).catch(() => null)),
-  );
+  // Cap total docs — prioritise news and legal, trim SEC filings
+  const docs = [...allDocs]
+    .sort((a, b) => (SOURCE_PRIORITY[b.source] ?? 0) - (SOURCE_PRIORITY[a.source] ?? 0))
+    .slice(0, MAX_DOCS);
+
+  const extractions: (Awaited<ReturnType<typeof extract>> | null)[] = new Array(docs.length).fill(null);
+  await runWithConcurrency(docs, async (d) => {
+    const i = docs.indexOf(d);
+    extractions[i] = await extract(d, target).catch(() => null);
+  }, EXTRACT_CONCURRENCY);
 
   const graph = createGraph();
   const events: Event[] = [];

@@ -86,36 +86,28 @@ export async function fromLinkedIn(
   target: string,
   opts: AdapterOpts = {},
 ): Promise<RawDocT[]> {
-  // PATTERN — copy & adapt:
-  //  1. Resolve target domain → LinkedIn company URL
-  //  2. Use Bright Data Datasets for historical (preferred — fast)
-  //  3. Fall back to Scraping Browser for live page
-  const companyUrl = `https://linkedin.com/company/${slugify(target)}`;
-  const since = daysAgoIso(opts.lookbackDays ?? 180);
+  // Use SERP to find specific LinkedIn posts — gives exact post URLs instead of
+  // the generic company page, so each extracted fact cites a clickable source.
+  const company = cleanTarget(target);
+  const query = `site:linkedin.com/posts "${company}"`;
+  const since = `${opts.lookbackDays ?? 180}d`;
 
-  // TODO: swap with real dataset_id
-  // const rows = await brightDataDataset('linkedin_company_history', {
-  //   domain: target,
-  //   since,
-  // });
-
-  // Live fallback (slow):
-  const rendered = await withRetry(
-    () => brightDataBrowserRender(companyUrl, { waitFor: '.company-overview' }),
-    { timeoutMs: opts.timeoutMs ?? 10_000 },
+  const results = await withRetry(
+    () => brightDataSerp(query, { num: 10, since }),
+    { timeoutMs: opts.timeoutMs ?? 15_000 },
   );
 
-  return [
+  return results.map((r) =>
     RawDoc.parse({
-      id: slugify(`linkedin-${target}`),
-      url: companyUrl,
+      id: slugify(`linkedin-${r.link}`),
+      url: r.link,
       source: 'linkedin_company' satisfies SourceType,
-      title: `LinkedIn company page — ${target}`,
-      body: rendered.html.slice(0, 50_000),
-      publishedAt: null,
+      title: r.title,
+      body: r.snippet,
+      publishedAt: r.publishedAt ?? null,
       scrapedAt: nowIso(),
     }),
-  ];
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -127,22 +119,42 @@ export async function fromGlassdoor(
   target: string,
   opts: AdapterOpts = {},
 ): Promise<RawDocT[]> {
-  const url = `https://www.glassdoor.com/Reviews/${slugify(target)}-reviews.htm`;
-  const html = await withRetry(() => brightDataUnlock(url), {
-    timeoutMs: opts.timeoutMs ?? 12_000,
-  });
+  // SERP for specific Glassdoor review pages — avoids anti-bot blocks and
+  // gives individual review URLs rather than the generic company overview.
+  const company = cleanTarget(target);
+  const query = `site:glassdoor.com "${company}" reviews rating`;
+  const since = `${opts.lookbackDays ?? 180}d`;
 
-  return [
-    RawDoc.parse({
+  const results = await withRetry(
+    () => brightDataSerp(query, { num: 5, since }),
+    { timeoutMs: opts.timeoutMs ?? 12_000 },
+  );
+
+  // Fall back to a single overview doc if SERP found nothing
+  if (results.length === 0) {
+    const url = `https://www.glassdoor.com/Reviews/${slugify(company)}-reviews.htm`;
+    return [RawDoc.parse({
       id: slugify(`glassdoor-${target}`),
       url,
       source: 'glassdoor_reviews' satisfies SourceType,
       title: `Glassdoor reviews — ${target}`,
-      body: html.slice(0, 80_000),
+      body: `Glassdoor review page for ${target}.`,
       publishedAt: null,
       scrapedAt: nowIso(),
+    })];
+  }
+
+  return results.map((r) =>
+    RawDoc.parse({
+      id: slugify(`glassdoor-${r.link}`),
+      url: r.link,
+      source: 'glassdoor_reviews' satisfies SourceType,
+      title: r.title,
+      body: r.snippet,
+      publishedAt: r.publishedAt ?? null,
+      scrapedAt: nowIso(),
     }),
-  ];
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -207,7 +219,7 @@ export async function fromSecEdgar(
     hits?: { hits?: Array<{ _source: { display_names: string[]; file_date: string; adsh: string; form: string } }> };
   };
 
-  return (data.hits?.hits ?? []).map((h) =>
+  return (data.hits?.hits ?? []).slice(0, 8).map((h) =>
     RawDoc.parse({
       id: slugify(`sec-${h._source.adsh}`),
       url: `https://www.sec.gov/Archives/edgar/data/${h._source.adsh}`,

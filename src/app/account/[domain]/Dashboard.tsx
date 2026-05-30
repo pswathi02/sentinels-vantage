@@ -181,7 +181,7 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: 'memo', label: 'Ask & Memo', hint: 'Cited Q&A and the diligence memo' },
 ];
 
-export function Dashboard({ dossier }: { dossier: Dossier }) {
+export function Dashboard({ dossier, demoMode }: { dossier: Dossier; demoMode?: boolean }) {
   const fromMs = Date.parse(dossier.window.from);
   const toMs = Date.parse(dossier.window.to);
 
@@ -189,6 +189,25 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [demoToast, setDemoToast] = useState(false);
+
+  useEffect(() => {
+    if (!demoMode) return;
+    const handler = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+      if (!a) return;
+      const cls = a.className ?? '';
+      if (cls.includes('delta-cite') || cls.includes('qa-cite') || cls.includes('sc-chip') ||
+          cls.includes('tl-link') || cls.includes('memo-cite') || cls.includes('ref-link') ||
+          a.closest('.cite') || a.closest('.sources-panel')) {
+        e.preventDefault();
+        setDemoToast(true);
+        setTimeout(() => setDemoToast(false), 3500);
+      }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [demoMode]);
 
   // ── animated replay ──────────────────────────────────
   const raf = useRef<number | null>(null);
@@ -401,6 +420,17 @@ export function Dashboard({ dossier }: { dossier: Dossier }) {
 
   return (
     <div>
+      {demoToast && (
+        <div style={{
+          position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--surface-2, #1e2330)', border: '1px solid var(--border, #2a3040)',
+          color: 'var(--text)', padding: '0.65rem 1.25rem', borderRadius: '8px',
+          fontSize: '0.82rem', zIndex: 9999, whiteSpace: 'nowrap',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+        }}>
+          Demo mode — source links are illustrative. Live mode scrapes real URLs via Bright Data.
+        </div>
+      )}
       <div className="dash-head">
         <h1>{titleCase(dossier.target)}</h1>
         <span className="domain">{dossier.target}</span>

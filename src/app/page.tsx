@@ -3,18 +3,18 @@ import Link from 'next/link';
 const DEMO_TARGETS = [
   {
     domain: 'peloton.com',
-    why: 'Public 2022–2024 collapse — CFO churn, Glassdoor crash, layoffs, lawsuits. Rich, undeniable signal.',
+    why: 'Public 2022-2024 collapse - CFO churn, Glassdoor crash, layoffs, lawsuits. Rich, undeniable signal.',
     ready: true,
   },
   {
     domain: 'wework.com',
-    why: 'Classic pre-bankruptcy unraveling.',
-    ready: false,
+    why: 'Classic pre-bankruptcy unraveling - CFO exit, Chapter 11, landlord lawsuits, 170 closures.',
+    ready: true,
   },
   {
     domain: 'klaviyo.com',
-    why: 'Positive ramp pre-IPO — proves the tool isn’t doom-only.',
-    ready: false,
+    why: "Positive ramp - IPO, Shopify partnership, AI launch. Proves the tool isn't doom-only.",
+    ready: true,
   },
 ];
 

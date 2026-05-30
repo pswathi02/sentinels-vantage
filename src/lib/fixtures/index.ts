@@ -8,6 +8,8 @@
 
 import type { RawDoc, ExtractionResult } from '@/lib/schema';
 import { PELOTON_DOCS, PELOTON_EXTRACTIONS } from './peloton';
+import { WEWORK_DOCS, WEWORK_EXTRACTIONS } from './wework';
+import { KLAVIYO_DOCS, KLAVIYO_EXTRACTIONS } from './klaviyo';
 
 export interface DemoTarget {
   docs: RawDoc[];
@@ -16,6 +18,8 @@ export interface DemoTarget {
 
 const REGISTRY: Record<string, DemoTarget> = {
   'peloton.com': { docs: PELOTON_DOCS, extractions: PELOTON_EXTRACTIONS },
+  'wework.com': { docs: WEWORK_DOCS, extractions: WEWORK_EXTRACTIONS },
+  'klaviyo.com': { docs: KLAVIYO_DOCS, extractions: KLAVIYO_EXTRACTIONS },
 };
 
 function normalizeDomain(target: string): string {

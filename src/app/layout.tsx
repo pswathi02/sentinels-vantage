@@ -6,6 +6,8 @@ export const metadata: Metadata = {
   description: 'A temporal knowledge graph of the open web for any company.',
 };
 
+const isDemo = process.env.DEMO_MODE === '1' || !process.env.ANTHROPIC_API_KEY;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -15,9 +17,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             VANT<span>AGE</span>
             <small>temporal due diligence · Sentinels × Bright Data</small>
           </a>
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-faint)' }}>
-            DEMO MODE
-          </div>
+          {isDemo && (
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-faint)' }}>
+              DEMO MODE
+            </div>
+          )}
         </div>
         {children}
       </body>

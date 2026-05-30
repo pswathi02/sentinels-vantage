@@ -25,7 +25,7 @@ function client(): Anthropic {
   return _client;
 }
 
-const MODEL = 'claude-sonnet-4-5-20250929'; // bump to 4.6 when available
+const MODEL = 'claude-sonnet-4-6';
 
 const EXTRACTION_TOOL: Anthropic.Tool = {
   name: 'record_extraction',
@@ -130,7 +130,11 @@ const EXTRACTION_TOOL: Anthropic.Tool = {
 const SYSTEM_PROMPT = `You are a diligence analyst extracting structured intelligence from web documents about companies.
 
 Rules:
-1. Every relation MUST have a validFrom date. If the document doesn't state one, use the publication date.
+1. Every relation MUST have a validFrom date. Use this priority order:
+   a. The specific date explicitly stated in the document for that event (e.g. "on March 25th", "Q3 2024", "January 2026").
+   b. The publication date of the document (provided as "Published:" in the prompt).
+   c. Only use today's date as a last resort if neither is available.
+   IMPORTANT: If a document says "speaking at CERAWeek on March 25th" the validFrom is March 25, not the publication date.
 2. Every relation MUST have an evidence excerpt — a direct quote from the document.
 3. Be conservative: only extract facts the document clearly states. Do not infer.
 4. Confidence reflects how directly the document supports the fact:
@@ -140,6 +144,7 @@ Rules:
    - <0.5 = don't emit
 5. Use canonical names (e.g. "Peloton Interactive" not "Peloton", "Barry McCarthy" not "Mr. McCarthy").
 6. For exec departures: emit \`departed\` with validTo on the company, validFrom on date of leaving.
+7. For events (conferences, product launches, announcements): use the specific event date, not the post date.
 `;
 
 export async function extract(
@@ -156,15 +161,27 @@ export async function extract(
 
   const userMessage = buildUserMessage(doc, targetCompany);
 
-  const response = await client().messages.create({
-    model: MODEL,
-    max_tokens: 4096,
-    temperature: 0,
-    system: SYSTEM_PROMPT,
-    tools: [EXTRACTION_TOOL],
-    tool_choice: { type: 'tool', name: 'record_extraction' },
-    messages: [{ role: 'user', content: userMessage }],
-  });
+  // Retry up to 3 times on 429 rate limit with exponential backoff
+  let response;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      response = await client().messages.create({
+        model: MODEL,
+        max_tokens: 4096,
+        temperature: 0,
+        system: SYSTEM_PROMPT,
+        tools: [EXTRACTION_TOOL],
+        tool_choice: { type: 'tool', name: 'record_extraction' },
+        messages: [{ role: 'user', content: userMessage }],
+      });
+      break;
+    } catch (err: unknown) {
+      const isRateLimit = err instanceof Error && err.message.includes('429');
+      if (!isRateLimit || attempt === 2) throw err;
+      await new Promise((r) => setTimeout(r, 5000 * 2 ** attempt));
+    }
+  }
+  if (!response) throw new Error('extraction failed after retries');
 
   // Extract the tool_use block
   const toolUse = response.content.find(
@@ -220,8 +237,8 @@ export async function extract(
       toEntityId: slugifyName(r.toName),
       kind: r.kind,
       observedAt,
-      validFrom: r.validFrom,
-      validTo: r.validTo ?? null,
+      validFrom: coerceIso(r.validFrom, observedAt),
+      validTo: r.validTo ? coerceIso(r.validTo, null) : null,
       sources: [source],
       evidence: r.evidence,
       confidence: r.confidence,
@@ -232,7 +249,7 @@ export async function extract(
       companyId: slugifyName(e.companyName),
       category: e.category,
       title: e.title,
-      occurredAt: e.occurredAt,
+      occurredAt: coerceIso(e.occurredAt, observedAt),
       description: e.description,
       sources: [source],
     })),
@@ -240,12 +257,33 @@ export async function extract(
   });
 }
 
+/** Coerce a Claude-returned date string ("2022-02", "Feb 2022", etc.) to a full ISO 8601 timestamp. */
+function coerceIso(raw: string, fallback: string | null): string {
+  if (!raw) return fallback ?? new Date().toISOString();
+  const s = raw.trim();
+  // Already a full ISO timestamp
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s;
+  // YYYY-MM-DD → append time
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return `${s}T00:00:00.000Z`;
+  // YYYY-MM → first of month
+  if (/^\d{4}-\d{2}$/.test(s)) return `${s}-01T00:00:00.000Z`;
+  // YYYY → Jan 1
+  if (/^\d{4}$/.test(s)) return `${s}-01-01T00:00:00.000Z`;
+  // Try native parse
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString();
+  return fallback ?? new Date().toISOString();
+}
+
 function buildUserMessage(doc: RawDoc, targetCompany: string): string {
+  const pubDate = doc.publishedAt
+    ? new Date(doc.publishedAt).toISOString().slice(0, 10)
+    : 'unknown';
   return `Target company: ${targetCompany}
 Source: ${doc.source}
 URL: ${doc.url}
-Published: ${doc.publishedAt ?? 'unknown'}
-Scraped: ${doc.scrapedAt}
+Published: ${pubDate}
+Scraped: ${doc.scrapedAt.slice(0, 10)}
 
 ---
 
@@ -254,7 +292,8 @@ ${doc.title ? `# ${doc.title}\n\n` : ''}${doc.body}
 ---
 
 Extract all entities, temporal relations, and events relevant to ${targetCompany}.
-Use the publication date (${doc.publishedAt ?? nowIso()}) as the default validFrom if a relation's date is implicit.`;
+For validFrom: prefer specific dates mentioned in the content (e.g. "March 25th", "Q3 2024").
+Fallback to publication date ${pubDate} only if no specific date is stated in the text.`;
 }
 
 function slugifyName(name: string): string {
