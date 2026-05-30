@@ -5,6 +5,36 @@
 
 ---
 
+## 🟢 Status update — demo track shipped (2026-05-29)
+
+A **demo/pre-cached track** was built ahead of the live stack so the team stays aligned on
+the original idea while live Bright Data endpoints are wired in parallel. It runs with
+**zero credentials** (`npm install && npm run dev`) and flows fixture data through the
+*real* graph/temporal/UI code. See **[README.md](README.md)**.
+
+**Done (demo track):**
+- ✅ Phase 0 bootstrap — done via lightweight `package.json` (npm + Node), **not**
+  create-next-app. No Tailwind / shadcn / Postgres / React Flow (hand-written CSS + custom
+  SVG graph instead).
+- ✅ Phase 3 — `scripts/dilly.ts` runs end-to-end (demo mode).
+- ✅ Phase 5 — landing page + 3 demo cards (Peloton live; WeWork/Klaviyo pending fixtures).
+- ✅ Phase 7 — dashboard: time slider + replay, custom SVG knowledge graph, active cited signals.
+- ✅ Phase 8 (client-side equivalents) — Δ delta report, cited Q&A, lag-aware memo, analog
+  panel — all as pure functions in `src/lib/diligence.ts`.
+- ✅ Phase 9-B — memo "Export PDF" via scoped `window.print()` (no `@react-pdf` dependency).
+
+**Still pending (live track — see "Live-data bridge" below):**
+- 🟡 Phase 1 — real Bright Data endpoints in `client.ts` + model id fix in `extractor.ts`.
+- 🟡 Phase 2 — Postgres persistence (graph is in-memory only).
+- 🟡 Phase 4 — pre-cache WeWork + Klaviyo (need fixtures or a live run).
+- 🟡 Phase 6 — API routes (the demo renders server-side from `buildDossier`, no routes yet).
+- 🟡 Analog search is a **demo mock** until a multi-company signal index exists.
+
+> The phases below are the **original full plan**; treat the items above as the source of
+> truth for what's already built.
+
+---
+
 ## Current state of the repo
 
 The scaffolding layer is done. Business logic and the entire Next.js app do not exist yet.

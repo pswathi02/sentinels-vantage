@@ -29,6 +29,7 @@ import {
   brightDataDataset,
   withRetry,
 } from './client';
+import { isDemoMode, getDemoTarget } from '@/lib/fixtures';
 
 export interface AdapterOpts {
   /** How many days back to look. Default 180. */
@@ -259,6 +260,13 @@ export async function ingestAll(
   target: string,
   opts: AdapterOpts = {},
 ): Promise<{ docs: RawDocT[]; errors: Array<{ source: string; error: string }> }> {
+  // DEMO_MODE — serve pre-cached fixtures, no external calls.
+  if (isDemoMode()) {
+    const demo = getDemoTarget(target);
+    if (demo) return { docs: demo.docs, errors: [] };
+    // demo mode but unknown target — fall through to live adapters
+  }
+
   const adapters: Array<[string, (t: string, o: AdapterOpts) => Promise<RawDocT[]>]> = [
     ['serp', fromSerp],
     ['linkedin', fromLinkedIn],

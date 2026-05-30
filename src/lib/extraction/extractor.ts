@@ -17,10 +17,13 @@ import {
   type RawDoc,
   nowIso,
 } from '@/lib/schema';
+import { isDemoMode, getDemoTarget } from '@/lib/fixtures';
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+let _client: Anthropic | null = null;
+function client(): Anthropic {
+  if (!_client) _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _client;
+}
 
 const MODEL = 'claude-sonnet-4-5-20250929'; // bump to 4.6 when available
 
@@ -143,9 +146,17 @@ export async function extract(
   doc: RawDoc,
   targetCompany: string,
 ): Promise<ExtractionResultT> {
+  // DEMO_MODE — return the pre-extracted facts for this fixture doc.
+  if (isDemoMode()) {
+    const demo = getDemoTarget(targetCompany);
+    const cached = demo?.extractions[doc.id];
+    if (cached) return ExtractionResult.parse(cached);
+    // demo mode but unknown doc — fall through to live extraction
+  }
+
   const userMessage = buildUserMessage(doc, targetCompany);
 
-  const response = await client.messages.create({
+  const response = await client().messages.create({
     model: MODEL,
     max_tokens: 4096,
     temperature: 0,

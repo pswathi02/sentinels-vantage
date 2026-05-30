@@ -1,5 +1,19 @@
 # Setup — run this once at kickoff
 
+> **⚠️ Status (2026-05-29): the demo track diverged from this doc.**
+> What actually shipped is lighter than the plan below. To run the app today, you do
+> **not** need create-next-app, Tailwind, shadcn, Postgres, or React Flow — see
+> **[README.md](README.md)** for the real one-command start (`npm install && npm run dev`).
+>
+> Done vs. this doc:
+> - ✅ Next.js 15 App Router + `@/*` alias — added directly via `package.json` (no `create-next-app`).
+> - ✅ Deps: `@anthropic-ai/sdk`, `graphology`, `zod`, `tsx`, `typescript` only.
+> - ✅ Schemas, fixtures, pipeline, dashboard, diligence (delta/Q&A/memo) — all built.
+> - ⏭️ Skipped for the demo track: Tailwind, shadcn, `@xyflow/react`, `pg`/drizzle, `@react-pdf` (hand-written CSS + custom SVG graph + `window.print()` instead).
+> - 🟡 Pending for live data: Postgres, real Bright Data endpoints, `@react-pdf` (see README "Live-data bridge").
+>
+> The steps below are kept as the **live-stack reference** for when we wire real scraping + persistence.
+
 ## 1. Bootstrap Next.js into the current directory
 
 ```bash
@@ -60,9 +74,14 @@ npm run dev
 | File | Status | Owner task |
 |---|---|---|
 | `src/lib/schema.ts` | ✅ Complete | VAN-102 |
-| `src/lib/brightdata/client.ts` | 🟡 Skeleton — fill in real MCP calls | VAN-103 |
-| `src/lib/brightdata/sources.ts` | 🟡 Pattern + SERP example — copy for other sources | VAN-201..206 |
-| `src/lib/extraction/extractor.ts` | 🟡 Skeleton — refine prompt | VAN-301 |
-| `src/lib/graph/store.ts` | 🟡 Skeleton — wire to Postgres | VAN-303 |
-| `src/lib/temporal/query.ts` | 🟡 Skeleton — implement traversals | VAN-304 |
-| `scripts/dilly.ts` | 🟡 Orchestration shell | VAN-306 |
+| `src/lib/fixtures/peloton.ts` | ✅ Demo fixtures complete | demo track |
+| `src/lib/fixtures/index.ts` | ✅ Registry + `isDemoMode()` | demo track |
+| `src/lib/pipeline.ts` | ✅ `buildGraph` / `buildDossier` | demo track |
+| `src/lib/diligence.ts` | ✅ delta / Q&A / memo / analog | demo track |
+| `src/app/` (landing + dashboard) | ✅ Built (CSS + custom SVG graph) | demo track |
+| `src/lib/brightdata/sources.ts` | 🟡 Demo branch wired; live calls stubbed | VAN-201..206 |
+| `src/lib/brightdata/client.ts` | 🟡 Skeleton — fill in real Bright Data endpoints | VAN-103 |
+| `src/lib/extraction/extractor.ts` | 🟡 Demo branch wired; fix model id + prompt | VAN-301 |
+| `src/lib/graph/store.ts` | 🟡 In-memory; Postgres persistence pending | VAN-303 |
+| `src/lib/temporal/query.ts` | ✅ Traversals implemented | VAN-304 |
+| `scripts/dilly.ts` | ✅ Runs end-to-end in demo mode | VAN-306 |
