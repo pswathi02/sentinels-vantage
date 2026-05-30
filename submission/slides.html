@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vantage — Team Sentinels · Bright Data Web Data Unlocked Hackathon</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --bg-elev: #121722;
+    --bg-card: #161c29;
+    --border: #232c3d;
+    --text: #e8edf6;
+    --text-dim: #9fb0c8;
+    --text-faint: #6b7a93;
+    --accent: #4f9dff;
+    --accent-2: #7c5cff;
+    --green: #36d399;
+    --amber: #f7b955;
+    --red: #f06c6c;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #05070b;
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    padding: 32px 0;
+  }
+
+  .deck {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+  }
+
+  /* 16:9 slide */
+  .slide {
+    width: 1120px;
+    height: 630px;
+    background:
+      radial-gradient(1200px 500px at 80% -10%, rgba(79,157,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgba(124,92,255,0.10), transparent 55%),
+      var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 54px 60px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+  }
+
+  .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .kicker .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+
+  h1 { font-size: 64px; line-height: 1.04; letter-spacing: -0.02em; font-weight: 800; }
+  h2 { font-size: 38px; line-height: 1.1; letter-spacing: -0.01em; font-weight: 800; margin-bottom: 6px; }
+  .lead { font-size: 19px; color: var(--text-dim); line-height: 1.5; }
+
+  .slide-num {
+    position: absolute; bottom: 22px; right: 28px;
+    font-family: var(--mono); font-size: 12px; color: var(--text-faint);
+  }
+  .brand-foot {
+    position: absolute; bottom: 22px; left: 60px;
+    font-size: 12px; color: var(--text-faint); letter-spacing: 0.04em;
+  }
+  .brand-foot b { color: var(--text-dim); }
+
+  /* ---- Title slide ---- */
+  .logo-row { display: flex; align-items: center; gap: 16px; }
+  .logo-mark {
+    width: 54px; height: 54px; border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center; font-size: 28px; font-weight: 900; color: #fff;
+    box-shadow: 0 8px 30px rgba(79,157,255,0.4);
+  }
+  .title-wrap { display: flex; flex-direction: column; height: 100%; justify-content: center; gap: 26px; }
+  .tagline { font-size: 26px; color: var(--text-dim); font-weight: 500; max-width: 760px; line-height: 1.4; }
+  .tagline b { color: var(--text); }
+  .pill-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .pill {
+    border: 1px solid var(--border); background: var(--bg-elev);
+    border-radius: 999px; padding: 9px 16px; font-size: 14px; color: var(--text-dim);
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .pill b { color: var(--text); }
+
+  /* ---- Generic content grid ---- */
+  .head { margin-bottom: 26px; }
+  .cols { display: grid; gap: 18px; }
+  .cols.two { grid-template-columns: 1fr 1fr; }
+  .cols.three { grid-template-columns: repeat(3, 1fr); }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px 22px;
+  }
+  .card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 9px; }
+  .card p { font-size: 14.5px; color: var(--text-dim); line-height: 1.5; }
+  .card .ico { font-size: 20px; }
+
+  .stat { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; }
+  .stat.red { color: var(--red); }
+  .stat.green { color: var(--green); }
+  .stat.blue { color: var(--accent); }
+  .stat-label { font-size: 13.5px; color: var(--text-faint); margin-top: 2px; }
+
+  ul.feat { list-style: none; display: flex; flex-direction: column; gap: 11px; }
+  ul.feat li { font-size: 15px; color: var(--text-dim); line-height: 1.45; padding-left: 26px; position: relative; }
+  ul.feat li::before {
+    content: "▸"; position: absolute; left: 4px; top: 0; color: var(--accent); font-weight: 800;
+  }
+  ul.feat li b { color: var(--text); }
+
+  .chk li::before { content: "✓"; color: var(--green); }
+
+  /* For-who row */
+  .who-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .who { font-size: 13.5px; padding: 7px 13px; border-radius: 8px; background: var(--bg-elev); border: 1px solid var(--border); color: var(--text-dim); }
+
+  /* Bright Data slide */
+  .bd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .bd-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .bd-item .t { font-size: 15.5px; font-weight: 700; margin-bottom: 5px; display:flex; gap:8px; align-items:center; }
+  .bd-item .d { font-size: 13px; color: var(--text-dim); line-height: 1.45; }
+  .bd-badge { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+
+  /* Demo screenshot placeholder */
+  .shot {
+    flex: 1;
+    border: 2px dashed var(--border);
+    border-radius: 14px;
+    background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.015) 0 14px, transparent 14px 28px),
+      var(--bg-elev);
+    display: grid; place-items: center; text-align: center;
+    min-height: 300px;
+  }
+  .shot .ph-ico { font-size: 40px; margin-bottom: 10px; }
+  .shot .ph-t { font-size: 16px; color: var(--text-dim); font-weight: 600; }
+  .shot .ph-s { font-size: 13px; color: var(--text-faint); margin-top: 6px; }
+
+  .demo-wrap { display: flex; gap: 24px; height: calc(100% - 96px); }
+  .demo-left { width: 360px; display: flex; flex-direction: column; gap: 14px; }
+  .demo-right { flex: 1; display: flex; }
+
+  .link-box {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .link-box .lab { font-size: 12px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 5px; }
+  .link-box .val { font-family: var(--mono); font-size: 14px; color: var(--accent); word-break: break-all; }
+
+  .note { font-size: 12px; color: var(--text-faint); margin-top: 8px; font-style: italic; }
+
+  /* print: one slide per page */
+  @media print {
+    body { background: #fff; padding: 0; }
+    .deck { gap: 0; }
+    .slide {
+      width: 100%; height: 100vh; border-radius: 0; border: none;
+      page-break-after: always; box-shadow: none;
+    }
+    .print-hide { display: none; }
+  }
+  .toolbar {
+    width: 1120px; display: flex; justify-content: space-between; align-items: center;
+    color: var(--text-faint); font-size: 13px; margin-bottom: 4px;
+  }
+  .toolbar button {
+    background: var(--accent); color: #06101f; border: none; border-radius: 8px;
+    padding: 8px 16px; font-weight: 700; font-size: 13px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div class="deck">
+
+  <div class="toolbar print-hide">
+    <span>Vantage · Team Sentinels — 6-slide submission deck</span>
+    <button onclick="window.print()">⌘P → Save as PDF</button>
+  </div>
+
+  <!-- ============ SLIDE 1 — TITLE ============ -->
+  <section class="slide">
+    <div class="title-wrap">
+      <div class="logo-row">
+        <div class="logo-mark">V</div>
+        <div>
+          <div class="kicker"><span class="dot"></span> Team Sentinels</div>
+          <div style="font-size:13px;color:var(--text-faint);margin-top:4px;">Web Data Unlocked Hackathon · lablab.ai × Bright Data</div>
+        </div>
+      </div>
+
+      <h1>Vantage</h1>
+      <div class="tagline">
+        <b>Time-travel for the open web.</b> Type a company domain and watch its story —
+        exec exits, layoffs, lawsuits, sentiment, pricing — rebuild itself on a draggable timeline.
+        Every claim cited to its real source.
+      </div>
+
+      <div class="pill-row">
+        <span class="pill">🏁 Track 2 · <b>Finance &amp; Market Intelligence</b></span>
+        <span class="pill">🌐 Powered by <b>Bright Data MCP</b></span>
+        <span class="pill">🧠 Extraction by <b>Claude</b></span>
+        <span class="pill">⏱️ Ingest → render in <b>≤10s</b></span>
+      </div>
+    </div>
+    <div class="brand-foot"><b>VANTAGE</b> · Temporal due diligence on the open web</div>
+    <div class="slide-num">01 / 06</div>
+  </section>
+
+  <!-- ============ SLIDE 2 — PROBLEM / WHY / FOR WHO ============ -->
+  <section class="slide">
+    <div class="head">
+      <div class="kicker"><span class="dot"></span> The problem</div>
+      <h2>Preliminary diligence is a 40-hour manual slog</h2>
+      <div class="lead">Analysts hand-pull LinkedIn, Glassdoor, news, filings, pricing &amp; lawsuits — then it's stale by the time the memo ships.</div>
+    </div>
+
+    <div class="cols three" style="margin-bottom:18px;">
+      <div class="card">
+        <div class="stat red">40+ hrs</div>
+        <div class="stat-label">per target, per analyst, on grunt research before any real analysis begins</div>
+      </div>
+      <div class="card">
+        <div class="stat red">$$$</div>
+        <div class="stat-label">associate hours billed at PE/IB rates — multiplied across every deal in the pipeline</div>
+      </div>
+      <div class="card">
+        <div class="stat amber" style="color:var(--amber)">Static</div>
+        <div class="stat-label">snapshots only — you see <i>today</i>, never the trajectory that predicts tomorrow</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>👥 Who feels this pain</h3>
+      <div class="who-row">
+        <span class="who">PE associates</span>
+        <span class="who">IB analysts</span>
+        <span class="who">Hedge-fund researchers</span>
+        <span class="who">Corp-dev / M&amp;A teams</span>
+        <span class="who">VC scouts</span>
+        <span class="who">Credit &amp; risk desks</span>
+      </div>
+      <p style="margin-top:12px;"><b style="color:var(--text)">Vantage saves the time and the spend:</b> it compresses that 40-hour pull into a ~10-second, fully-cited, time-aware briefing — so the human spends their hours on judgment, not on copy-paste.</p>
+    </div>
+
+    <div class="brand-foot"><b>VANTAGE</b> · Team Sentinels</div>
+    <div class="slide-num">02 / 06</div>
+  </section>
+
+  <!-- ============ SLIDE 3 — SOLUTION + DEMO PLACEHOLDER ============ -->
+  <section class="slide">
+    <div class="head">
+      <div class="kicker"><span class="dot"></span> The solution</div>
+      <h2>A temporal knowledge graph of any company</h2>
+    </div>
+
+    <div class="demo-wrap">
+      <div class="demo-left">
+        <ul class="feat">
+          <li><b>Type a domain</b> → multi-source ingest fires across the open web</li>
+          <li><b>Drag the time slider</b> (30 / 90 / 180 days) and the graph mutates live</li>
+          <li><b>Hit play</b> → watch a company's collapse or breakout unfold week-by-week</li>
+          <li><b>Every node &amp; fact is cited</b> to the exact scraped article URL</li>
+          <li><b>Auto-memo</b> with risk narrative + IC questions, export to PDF</li>
+        </ul>
+        <div class="note">Bitemporal model: every fact carries valid_from / valid_to / observed_at / source — that's what makes "what did this look like at time <i>t</i>?" possible.</div>
+      </div>
+
+      <div class="demo-right">
+        <!-- ▼▼▼  DROP DEMO SCREENSHOT HERE  ▼▼▼ -->
+        <div class="shot">
+          <div>
+            <div class="ph-ico">🖼️</div>
+            <div class="ph-t">[ Demo screenshot goes here ]</div>
+            <div class="ph-s">Dashboard with the time slider + animated knowledge graph<br/>Replace this box with a PNG of /account/spirit.com</div>
+          </div>
+        </div>
+        <!-- ▲▲▲  DROP DEMO SCREENSHOT HERE  ▲▲▲ -->
+      </div>
+    </div>
+
+    <div class="brand-foot"><b>VANTAGE</b> · Team Sentinels</div>
+    <div class="slide-num">03 / 06</div>
+  </section>
+
+  <!-- ============ SLIDE 4 — WHY UNIQUE / NO COMPETITION ============ -->
+  <section class="slide">
+    <div class="head">
+      <div class="kicker"><span class="dot"></span> Why it's different</div>
+      <h2>Nobody treats the open web as a time-aware database</h2>
+      <div class="lead">Incumbents read internal data rooms &amp; pre-timestamped filings. We turn the <i>messy public web</i> into a queryable timeline.</div>
+    </div>
+
+    <div class="cols two" style="margin-bottom:16px;">
+      <div class="card">
+        <h3><span class="ico">🗂️</span> Hebbia · Rogo · AlphaSense</h3>
+        <p>Operate on <b style="color:var(--text)">internal data rooms</b> and already-timestamped SEC filings. They answer "what's in these documents?" — and the open web stays invisible.</p>
+      </div>
+      <div class="card" style="border-color:var(--accent);">
+        <h3><span class="ico">⏳</span> Vantage</h3>
+        <p>Structures the <b style="color:var(--text)">live public web</b> into a bitemporal graph you can scrub through time. We answer <b style="color:var(--text)">"how did this company change, and when?"</b></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>⏱️ The time dimension is the moat</h3>
+      <ul class="feat" style="margin-top:8px;">
+        <li><b>Trajectory &gt; snapshot</b> — two senior exits in 90 days is a distress signal a single snapshot can't see</li>
+        <li><b>Lead/lag patterns</b> — a CMO departure often precedes a sentiment dip ~45 days later; we make that visible</li>
+        <li><b>Replayable history</b> — drag back and watch Glassdoor stars climb, hiring expand, then the collapse animate forward</li>
+        <li><b>Provenance over time</b> — every edge knows <i>when</i> it became true and <i>where</i> it came from</li>
+      </ul>
+    </div>
+
+    <div class="brand-foot"><b>VANTAGE</b> · Team Sentinels</div>
+    <div class="slide-num">04 / 06</div>
+  </section>
+
+  <!-- ============ SLIDE 5 — BRIGHT DATA + EVERYTHING IT DOES ============ -->
+  <section class="slide">
+    <div class="head">
+      <div class="kicker"><span class="dot"></span> Built on Bright Data</div>
+      <h2>Without Bright Data, this collapses to a static snapshot</h2>
+    </div>
+
+    <div class="bd-grid">
+      <div class="bd-item">
+        <div class="t">🔌 MCP over SSE <span class="bd-badge">one interface</span></div>
+        <div class="d">A single orchestration layer across SERP, Web Scraper, Web Unlocker, Scraping Browser &amp; Datasets — fan-out ingest from one client.</div>
+      </div>
+      <div class="bd-item">
+        <div class="t">🛡️ Web Unlocker + residential proxies</div>
+        <div class="d">Uninterrupted coverage of Glassdoor, LinkedIn &amp; G2 where DIY scrapers die within days. This is what keeps the pipeline alive.</div>
+      </div>
+      <div class="bd-item">
+        <div class="t">🔎 SERP API</div>
+        <div class="d">News across NYT / FT / Business Journals, plus PACER litigation lookups — surfaced and placed on the timeline.</div>
+      </div>
+      <div class="bd-item">
+        <div class="t">📚 Datasets — historical backfill</div>
+        <div class="d">Pre-built LinkedIn / Glassdoor / Crunchbase history backfills 90+ days on Day 1 — no waiting to accumulate signal.</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>🧩 Everything Vantage does with that data</h3>
+      <div class="cols three" style="margin-top:6px;gap:12px;">
+        <ul class="feat" style="gap:8px;">
+          <li>Multi-source <b>ingest</b> across 6 source families</li>
+          <li><b>Claude tool-use extraction</b> → entities + temporal relations + events</li>
+          <li><b>Bitemporal graph</b> (graphology) merge &amp; resolve</li>
+        </ul>
+        <ul class="feat" style="gap:8px;">
+          <li><b>Time slider + animated replay</b> over the graph</li>
+          <li><b>Red-flag detection</b> across 6 risk dimensions</li>
+          <li><b>Δ Delta report</b> — what changed between two dates</li>
+        </ul>
+        <ul class="feat" style="gap:8px;">
+          <li><b>Cited Q&amp;A</b> — answers link back to source spans</li>
+          <li><b>Auto diligence memo</b> + PDF export</li>
+          <li><b>Live usage metering</b> + 6h disk cache for speed</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="brand-foot"><b>VANTAGE</b> · Team Sentinels</div>
+    <div class="slide-num">05 / 06</div>
+  </section>
+
+  <!-- ============ SLIDE 6 — DEMO + LINKS ============ -->
+  <section class="slide">
+    <div class="head">
+      <div class="kicker"><span class="dot"></span> See it live</div>
+      <h2>Try Vantage in 10 seconds</h2>
+      <div class="lead">Three pre-cached targets load instantly through the real pipeline; any other domain is fetched live via Bright Data.</div>
+    </div>
+
+    <div class="cols two">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div class="link-box">
+          <div class="lab">🎥 Demo video</div>
+          <div class="val">[ paste your demo video link here ]</div>
+        </div>
+        <div class="link-box">
+          <div class="lab">🚀 Live app</div>
+          <div class="val">[ paste your deployed URL here ]</div>
+        </div>
+        <div class="link-box">
+          <div class="lab">💻 GitHub repo</div>
+          <div class="val">[ paste your repo link here ]</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>✓ What the judges will see</h3>
+        <ul class="feat chk" style="margin-top:8px;gap:9px;">
+          <li>Drag the slider — the graph mutates across 180 days</li>
+          <li>Hit play — a company's story animates week by week</li>
+          <li>Click any node — the exact scraped quote + source URL</li>
+          <li>Open the memo — cited risk narrative, export to PDF</li>
+        </ul>
+        <p style="margin-top:14px;"><b style="color:var(--text)">Team Sentinels</b> · Track 2 · Web Data Unlocked Hackathon</p>
+      </div>
+    </div>
+
+    <div class="brand-foot"><b>VANTAGE</b> · Time-travel for the open web</div>
+    <div class="slide-num">06 / 06</div>
+  </section>
+
+</div>
+</body>
+</html>

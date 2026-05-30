@@ -234,8 +234,14 @@ export async function extract(
     summary: string;
   };
 
-  // Map raw output to schema-validated ExtractionResult
+  // Map raw output to schema-validated ExtractionResult.
+  // `observedAt` is *when we scraped it* (bitemporal: observation time).
+  // `whenTrue` is the best fallback for *when a fact became true* — the post's
+  // own publish date, NOT scrape time. Without this, a LinkedIn post about a
+  // months-old departure would land on "today" whenever Claude can't pull an
+  // explicit in-text date.
   const observedAt = doc.scrapedAt;
+  const whenTrue = doc.publishedAt ?? doc.scrapedAt;
   const source = {
     url: doc.url,
     type: doc.source,
@@ -261,7 +267,7 @@ export async function extract(
         toEntityId: slugifyName(r.toName),
         kind: correctMgmtKind(r.kind, r.evidence),
         observedAt,
-        validFrom: coerceIso(r.validFrom, observedAt),
+        validFrom: coerceIso(r.validFrom, whenTrue),
         validTo: r.validTo ? coerceIso(r.validTo, null) : null,
         sources: [source],
         evidence: r.evidence,
@@ -273,7 +279,7 @@ export async function extract(
       companyId: slugifyName(e.companyName),
       category: e.category,
       title: e.title,
-      occurredAt: coerceIso(e.occurredAt, observedAt),
+      occurredAt: coerceIso(e.occurredAt, whenTrue),
       description: e.description,
       sources: [source],
     })),

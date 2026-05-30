@@ -287,32 +287,51 @@ export async function brightDataDataset(
 
 /**
  * Convert SERP date strings to ISO 8601.
- * Bright Data returns dates as "2mo", "3d", "1w", "Mar 15, 2026", or full ISO.
+ * Bright Data / Google return dates in many shapes:
+ *   - compact relative:  "2mo", "3d", "1w", "2h"
+ *   - worded relative:   "2 weeks ago", "1 month ago", "5 hours ago", "1 year ago"
+ *   - named days:        "yesterday", "today"
+ *   - absolute:          "Mar 15, 2026", "2026-03-15", full ISO
+ * LinkedIn posts almost always arrive as the worded-relative form, so getting
+ * this right is what keeps each post pinned to its real publish date on the
+ * timeline (instead of collapsing onto "today").
  */
 export function parseSearchDate(raw: string | undefined | null): string | undefined {
   if (!raw) return undefined;
-  const s = raw.trim();
+  const s = raw.trim().toLowerCase();
   const now = Date.now();
+  const DAY = 86_400_000;
 
-  // Relative: "2mo", "3mo", "1w", "5d", "2h"
-  const rel = s.match(/^(\d+)\s*(mo|w|d|h)$/i);
+  if (s === 'today' || s === 'just now') return new Date(now).toISOString();
+  if (s === 'yesterday') return new Date(now - DAY).toISOString();
+
+  // Relative, compact or worded, with an optional trailing "ago":
+  //   "2mo", "3 days ago", "1 week ago", "5 hours ago", "1 year ago", "30 min ago"
+  const rel = s.match(
+    /^(\d+)\s*(year|yr|y|month|mo|week|wk|w|day|d|hour|hr|h|minute|min|second|sec)s?(?:\s+ago)?$/,
+  );
   if (rel) {
     const n = parseInt(rel[1], 10);
-    const unit = rel[2].toLowerCase();
-    const ms = unit === 'mo' ? n * 30 * 86400000
-              : unit === 'w'  ? n * 7  * 86400000
-              : unit === 'd'  ? n      * 86400000
-              :                  n      * 3600000;
-    return new Date(now - ms).toISOString();
+    const u = rel[2];
+    const ms =
+      u === 'y' || u === 'yr' || u === 'year' ? n * 365 * DAY
+      : u === 'mo' || u === 'month' ? n * 30 * DAY
+      : u === 'w' || u === 'wk' || u === 'week' ? n * 7 * DAY
+      : u === 'd' || u === 'day' ? n * DAY
+      : u === 'h' || u === 'hr' || u === 'hour' ? n * 3_600_000
+      : u === 'min' || u === 'minute' ? n * 60_000
+      : u === 'sec' || u === 'second' ? n * 1_000
+      : null;
+    if (ms != null) return new Date(now - ms).toISOString();
   }
 
   // Already ISO
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
-    return s.length === 10 ? `${s}T00:00:00.000Z` : s;
+    return s.length === 10 ? `${s}T00:00:00.000Z` : raw.trim();
   }
 
-  // Human readable: "Mar 15, 2026"
-  const d = new Date(s);
+  // Human readable: "Mar 15, 2026" (parse the original to preserve casing)
+  const d = new Date(raw.trim());
   if (!isNaN(d.getTime())) return d.toISOString();
 
   return undefined;
