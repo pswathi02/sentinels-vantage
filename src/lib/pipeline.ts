@@ -131,7 +131,29 @@ export async function buildDossier(
   const relations: TemporalRelation[] = [];
   graph.forEachEdge((_edge, attrs) => relations.push(attrs.relation));
 
-  const companyId = pickCompanyId(target, entities, relations);
+  // Keep only signals whose date falls within the lookback window — i.e. things
+  // published / happening recently. Now that every fact is dated by its real
+  // publish-or-in-article date (not scrape time), stale articles that slipped
+  // through search land *outside* the window; drop them so the timeline and
+  // "active signals" are genuinely recent. Future-dated announcements ("will
+  // join next month") are kept. Unparseable dates are never dropped.
+  const windowFromMs = Date.parse(daysAgoIso(lookbackDays));
+  const EDGE_GRACE_MS = 2 * 24 * 60 * 60 * 1000; // tolerate just-outside-edge dates
+  const inWindow = (iso: string): boolean => {
+    const t = Date.parse(iso);
+    return Number.isNaN(t) ? true : t >= windowFromMs - EDGE_GRACE_MS;
+  };
+  // Safety net: never blank the whole board — if the window filter would remove
+  // everything (e.g. all dates parsed older than the window), keep the
+  // unfiltered set rather than showing an empty dashboard.
+  const windowedRelations = relations.filter((r) => inWindow(r.validFrom));
+  const recentRelations = windowedRelations.length > 0 ? windowedRelations : relations;
+
+  const allEvents = dedupeEvents(events);
+  const windowedEvents = allEvents.filter((e) => inWindow(e.occurredAt));
+  const recentEvents = windowedEvents.length > 0 ? windowedEvents : allEvents;
+
+  const companyId = pickCompanyId(target, entities, recentRelations);
 
   // Drop "orphan" entities that have no cited relation — extraction sometimes
   // reifies a headline, news publisher, jurisdiction, stock-ticker page, or an
@@ -140,7 +162,7 @@ export async function buildDossier(
   // clutters the graph. The company hub is always kept.
   const { entities: citedEntities, relations: citedRelations } = keepCited(
     entities,
-    relations,
+    recentRelations,
     companyId,
   );
 
@@ -150,7 +172,7 @@ export async function buildDossier(
     window: { from: daysAgoIso(lookbackDays), to: nowIso() },
     entities: citedEntities,
     relations: citedRelations,
-    events: dedupeEvents(events),
+    events: recentEvents,
   };
 
   // Only cache successful fetches — never cache an empty/failed run, so a retry

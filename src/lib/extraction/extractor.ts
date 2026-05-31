@@ -140,10 +140,10 @@ const SYSTEM_PROMPT = `You are a diligence analyst extracting structured intelli
 
 Rules:
 1. Every relation MUST have a validFrom date. Use this priority order:
-   a. The specific date explicitly stated in the document for that event (e.g. "on March 25th", "Q3 2024", "January 2026").
-   b. The publication date of the document (provided as "Published:" in the prompt).
-   c. Only use today's date as a last resort if neither is available.
-   IMPORTANT: If a document says "speaking at CERAWeek on March 25th" the validFrom is March 25, not the publication date.
+   a. The specific date explicitly stated in the document for THAT event (e.g. "on March 25th", "Q3 2024", "January 2026"). Only use a date you can actually point to in the text.
+   b. Otherwise, the publication date of the document (provided as "Published:" in the prompt).
+   c. NEVER output the scrape date, today's date, or a guessed/rounded date. If you cannot find a specific date in the text, output the publication date verbatim — do not invent one.
+   IMPORTANT: If a document says "speaking at CERAWeek on March 25th" the validFrom is March 25, not the publication date. But if the text gives no date for the event, use the publication date — never a made-up one.
 2. Every relation MUST have an evidence excerpt — a direct quote from the document.
 3. Be conservative: only extract facts the document clearly states. Do not infer.
 4. Confidence reflects how directly the document supports the fact:
@@ -241,7 +241,8 @@ export async function extract(
   // months-old departure would land on "today" whenever Claude can't pull an
   // explicit in-text date.
   const observedAt = doc.scrapedAt;
-  const whenTrue = doc.publishedAt ?? doc.scrapedAt;
+  // Text we search to confirm a Claude-returned date is really described here.
+  const docText = `${doc.title ?? ''} ${doc.body ?? ''}`;
   const source = {
     url: doc.url,
     type: doc.source,
@@ -267,8 +268,8 @@ export async function extract(
         toEntityId: slugifyName(r.toName),
         kind: correctMgmtKind(r.kind, r.evidence),
         observedAt,
-        validFrom: coerceIso(r.validFrom, whenTrue),
-        validTo: r.validTo ? coerceIso(r.validTo, null) : null,
+        validFrom: reconcileDate(r.validFrom, doc, docText, r.evidence),
+        validTo: r.validTo ? reconcileDate(r.validTo, doc, docText, r.evidence) : null,
         sources: [source],
         evidence: r.evidence,
         confidence: r.confidence,
@@ -279,7 +280,7 @@ export async function extract(
       companyId: slugifyName(e.companyName),
       category: e.category,
       title: e.title,
-      occurredAt: coerceIso(e.occurredAt, whenTrue),
+      occurredAt: reconcileDate(e.occurredAt, doc, docText, e.description ?? e.title ?? ''),
       description: e.description,
       sources: [source],
     })),
@@ -349,6 +350,95 @@ function coerceIso(raw: string, fallback: string | null): string {
   const d = new Date(s);
   if (!isNaN(d.getTime())) return d.toISOString();
   return fallback ?? new Date().toISOString();
+}
+
+const MONTHS_FULL = ['january', 'february', 'march', 'april', 'may', 'june', 'july',
+  'august', 'september', 'october', 'november', 'december'];
+const MONTHS_ABBR = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/** How precise is the date string Claude returned? */
+function datePrecision(raw: string): 'day' | 'month' | 'year' | 'none' {
+  const s = (raw ?? '').trim();
+  if (!s) return 'none';
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return 'day';
+  if (/^\d{4}-\d{2}$/.test(s)) return 'month';
+  if (/^\d{4}$/.test(s)) return 'year';
+  const hasDay = /\b\d{1,2}(st|nd|rd|th)?\b/.test(s);
+  const hasMonth = new RegExp(`\\b(${MONTHS_FULL.join('|')}|${MONTHS_ABBR.join('|')})\\b`, 'i').test(s);
+  const hasYear = /\b\d{4}\b/.test(s);
+  if (hasMonth && hasDay) return 'day';
+  if (hasMonth) return 'month';
+  if (hasYear) return 'year';
+  return 'none';
+}
+
+/**
+ * Does `text` actually contain a token that backs up this ISO date at the given
+ * precision? We try the formats a writer would really use ("March 25",
+ * "Mar 25, 2026", "2026-03-25", "25 March", "3/25/2026", "March 2026"…). This
+ * is what lets us trust an in-text event date over the publish date — and
+ * reject a date Claude pulled out of nowhere.
+ */
+function textCorroboratesDate(text: string, iso: string, precision: 'day' | 'month' | 'year'): boolean {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return false;
+  const Y = d.getUTCFullYear();
+  const M = d.getUTCMonth(); // 0-based
+  const D = d.getUTCDate();
+  const mm = String(M + 1).padStart(2, '0');
+  const dd = String(D).padStart(2, '0');
+  const full = MONTHS_FULL[M];
+  const abbr = MONTHS_ABBR[M];
+  const cands: string[] = [];
+  if (precision === 'day') {
+    cands.push(
+      `${Y}-${mm}-${dd}`, `${M + 1}/${D}/${Y}`, `${mm}/${dd}/${Y}`, `${M + 1}/${D}`,
+      `${full} ${D}`, `${abbr} ${D}`, `${D} ${full}`, `${D} ${abbr}`,
+      `${full} ${D}st`, `${full} ${D}nd`, `${full} ${D}rd`, `${full} ${D}th`,
+    );
+  } else if (precision === 'month') {
+    // Require the year alongside the month so we don't match a stray month name.
+    cands.push(`${Y}-${mm}`, `${full} ${Y}`, `${abbr} ${Y}`);
+  } else {
+    cands.push(String(Y));
+  }
+  const hay = text.toLowerCase();
+  return cands.some((c) => hay.includes(c.toLowerCase()));
+}
+
+/**
+ * Reconcile a date Claude returned for a signal against the source document, so
+ * that every fetched signal's date is EITHER the date the article text actually
+ * describes OR the document's publish date — never the scrape time and never a
+ * fabricated date.
+ *
+ *  - empty            → publish date (or scrape time if none)
+ *  - year-only        → treated as a placeholder → publish date
+ *  - stated in text   → trust it (covers legit future-dated announcements)
+ *  - not in text      → publish date when we have one; otherwise the raw date,
+ *                       clamped so it can't sit in the future of the scrape.
+ */
+function reconcileDate(raw: string, doc: RawDoc, docText: string, evidence: string): string {
+  const pub = doc.publishedAt ?? null;
+  const scr = doc.scrapedAt;
+  const fallback = pub ?? scr;
+  const s = (raw ?? '').trim();
+  if (!s) return fallback;
+
+  const prec = datePrecision(s);
+  // A bare year is almost always a placeholder (Claude rounding) — don't let it
+  // override the real publish date.
+  if (prec === 'year' || prec === 'none') return fallback;
+
+  const iso = coerceIso(s, fallback);
+  const hay = `${docText} ${evidence ?? ''}`;
+  if (textCorroboratesDate(hay, iso, prec)) return iso;
+
+  // Claude's date isn't backed by the text → prefer the publish date.
+  if (pub) return pub;
+  // No publish date to fall back on: keep the date but never let an
+  // uncorroborated value land in the future relative to when we scraped.
+  return Date.parse(iso) > Date.parse(scr) ? scr : iso;
 }
 
 function buildUserMessage(doc: RawDoc, targetCompany: string): string {
